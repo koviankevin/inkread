@@ -3,11 +3,13 @@ import {readFile} from 'node:fs/promises';
 import path from 'node:path';
 import {gzipSync} from 'node:zlib';
 
-export async function serveSites(sites,{gzip=false}={}) {
+export async function serveSites(sites,{gzip=false,intercept}={}) {
   const compressed = new Map();
   const server = createServer(async (request,response) => {
     try {
       const pathname = decodeURIComponent(new URL(request.url,'http://localhost').pathname);
+      const override = await intercept?.(pathname,request);
+      if (override) { response.writeHead(override.status || 200,override.headers || {}).end(override.body || ''); return; }
       const [,site,...parts] = pathname.split('/');
       const directory = sites[site];
       if (!directory) { response.writeHead(404).end(); return; }

@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="light dark">
   <meta name="description" content="墨閱 — 讓 Markdown 回到好閱讀。可離線使用的文件檢視器。">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: https: http:; font-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: https: http:; font-src 'self' data:; connect-src 'none'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>墨閱 Inkread · Markdown 檢視器</title>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="./app.css">
-  <script src="./app.js" defer></script>
+  <link rel="stylesheet" href="./app.css?v=1.3.0">
+  <script src="./app.js?v=1.3.0" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#document">跳到文件內容</a>
@@ -19,7 +19,7 @@
       <a class="brand" href="#" id="brand-home" aria-label="墨閱，開啟閱讀指南">
         <span class="brand-mark"><svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M7 8h6l3 7 3-7h6v16h-5V15l-4 8-4-8v9H7V8Z" fill="currentColor"/><path d="M6 28h20" stroke="currentColor" stroke-width="2"/></svg></span>
         <span class="brand-name">墨閱<span>INKREAD</span></span>
-        <span class="version">v1.2</span>
+        <span class="version">v1.3</span>
       </a>
       <div class="workspace-label">你的閱讀空間 <span class="local-dot"></span></div>
       <button class="new-button" id="paste-button"><i data-lucide="plus"></i>貼上 Markdown<span class="shortcut">⌘ / Ctrl V</span></button>
@@ -46,6 +46,7 @@
         <div class="breadcrumb"><button class="icon-button" id="sidebar-toggle" title="切換文件清單" aria-label="切換文件清單" aria-expanded="true"><i data-lucide="panel-left"></i></button><span class="breadcrumb-root">閱讀空間</span><i data-lucide="chevron-right" class="crumb-chevron"></i><span id="current-file">開始閱讀.md</span></div>
         <div class="topbar-actions"><span class="local-status"><span></span>本機處理</span><button id="open-button" class="primary-button"><i data-lucide="folder-open"></i><span>開啟文件</span><kbd>O</kbd></button></div>
       </header>
+      <div class="offline-state"><span class="local-dot"></span><span id="offline-status" role="status" aria-live="polite">正在準備離線使用…</span><button id="offline-retry" type="button" hidden>重試</button></div>
       <div class="reading-toolbar">
         <div class="reading-label"><span class="label-line"></span>專注閱讀<span class="toolbar-divider"></span><span id="reading-time">約 3 分鐘</span></div>
         <div class="reading-controls">
@@ -70,7 +71,7 @@
   </div>
   <div id="drop-overlay" class="drop-overlay" hidden><div><i data-lucide="file-up"></i><h2>放開，開始閱讀。</h2><p>支援 .md、.markdown、.txt 及資料夾</p></div></div>
   <dialog id="paste-dialog" class="modal paste-modal" aria-labelledby="paste-title"><form method="dialog" class="modal-form"><div class="modal-header"><div><span class="eyebrow">A NEW PAGE</span><h2 id="paste-title">把想法貼在這裡。</h2></div><button class="icon-button" value="cancel" aria-label="關閉"><i data-lucide="x"></i></button></div><p class="modal-description">貼上 Markdown，讓文字變成好讀的文件。</p><label for="paste-name">文件名稱</label><input id="paste-name" class="text-input" value="未命名文件.md" maxlength="150"><label for="paste-content">Markdown 內容</label><textarea id="paste-content" placeholder="# 從一個標題開始…&#10;&#10;在這裡貼上你的 Markdown。" spellcheck="false"></textarea><div class="modal-footer"><span id="paste-count">0 字元</span><button id="paste-submit" class="primary-button" type="button"><i data-lucide="book-open"></i>開始閱讀</button></div></form></dialog>
-  <dialog id="help-dialog" class="modal help-modal" aria-labelledby="help-title"><form method="dialog"><div class="modal-header"><div><span class="eyebrow">A LITTLE HELP</span><h2 id="help-title">你的隨身閱讀空間</h2></div><button class="icon-button" aria-label="關閉"><i data-lucide="x"></i></button></div><div class="help-content"><h3>開啟文件</h3><p>拖曳或選取 Markdown 檔案，也能貼上文字。若文件引用本機圖片，請匯入包含文件和圖片的共同上層資料夾。資料夾內的 Markdown 連結也能互相跳轉。</p><h3>離線與隱私</h3><p>所有功能與字型已隨包附上。文件不會上傳，也不會在關閉或重新整理後保留；主題與字級偏好會儲存在此瀏覽器。遠端圖片需要你主動允許才載入。</p><h3>列印與 PDF</h3><p>按右上角列印按鈕，再選擇「另存為 PDF」。寬表格建議使用橫向紙張；圖表與公式會一起列印。</p><h3>鍵盤操作</h3><p><kbd>O</kbd> 開啟文件　<kbd>/</kbd> 搜尋文件　<kbd>Esc</kbd> 關閉對話框</p><p>在閱讀畫面直接貼上文字，也能建立文件。支援近期 Chrome 與 Edge。</p></div><div class="modal-footer"><span>墨閱 Inkread · v1.2</span><button class="primary-button">開始探索</button></div></form></dialog>
+  <dialog id="help-dialog" class="modal help-modal" aria-labelledby="help-title"><form method="dialog"><div class="modal-header"><div><span class="eyebrow">A LITTLE HELP</span><h2 id="help-title">你的隨身閱讀空間</h2></div><button class="icon-button" aria-label="關閉"><i data-lucide="x"></i></button></div><div class="help-content"><h3>開啟文件</h3><p>拖曳或選取 Markdown 檔案，也能貼上文字。若文件引用本機圖片，請匯入包含文件和圖片的共同上層資料夾。資料夾內的 Markdown 連結也能互相跳轉。</p><h3>離線與隱私</h3><p>線上版會自動下載完整離線功能；待頁首顯示「可離線使用」後，即可斷網重新開啟同一網址，包含圖表與公式。請使用同一瀏覽器；清除網站資料後需重新連線下載。下載 ZIP 版完整解壓縮後也可直接離線使用。文件不會上傳，也不會在關閉或重新整理後保留；主題與字級偏好會儲存在此瀏覽器。遠端圖片需要你主動允許才載入。</p><h3>列印與 PDF</h3><p>按右上角列印按鈕，再選擇「另存為 PDF」。寬表格建議使用橫向紙張；圖表與公式會一起列印。</p><h3>鍵盤操作</h3><p><kbd>O</kbd> 開啟文件　<kbd>/</kbd> 搜尋文件　<kbd>Esc</kbd> 關閉對話框</p><p>在閱讀畫面直接貼上文字，也能建立文件。支援近期 Chrome 與 Edge。</p></div><div class="modal-footer"><span>墨閱 Inkread · v1.3</span><button class="primary-button">開始探索</button></div></form></dialog>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   <input id="file-input" type="file" accept=".md,.markdown,.txt,text/markdown,text/plain" multiple hidden>
   <input id="folder-input" type="file" webkitdirectory multiple hidden>

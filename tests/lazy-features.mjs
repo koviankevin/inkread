@@ -14,7 +14,7 @@ const results = [];
 const pass = name => { results.push(name); console.log(`PASS ${name}`); };
 const optional = url => /\/(?:math|diagrams|elk)\.(?:js|css)(?:\?|$)/.test(url);
 async function session(local=false) {
-  const context = await browser.newContext({viewport:{width:1440,height:900}});
+  const context = await browser.newContext({serviceWorkers:"block",viewport:{width:1440,height:900}});
   context.setDefaultTimeout(20000);
   await context.route('**/*',route=>/^(file:|data:|blob:)/.test(route.request().url()) || route.request().url().startsWith(site.origin + '/') ? route.continue() : route.abort());
   if (local) await context.setOffline(true);

@@ -3,6 +3,7 @@ import {mkdir, rm, copyFile, cp, readFile, writeFile, readdir} from 'node:fs/pro
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {minify} from 'terser';
+import {writeOfflineWorker} from './offline-worker.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const out = path.join(root,'dist');
@@ -72,6 +73,8 @@ await writeFile(path.join(out,'THIRD-PARTY-NOTICES.txt'),notices);
 try { await copyFile(path.join(root,'README.md'),path.join(out,'使用說明.md')); } catch {}
 await copyFile(path.join(root,'交接文件.md'),path.join(out,'交接文件.md'));
 await copyFile(path.join(root,'LICENSE'),path.join(out,'LICENSE'));
+// Include all static app assets and font formats, with content integrity checks.
+await writeOfflineWorker(out);
 await mkdir(path.join(root,'test-results'),{recursive:true});
 await writeFile(path.join(root,'test-results','bundle-packages.json'),JSON.stringify([...packageFolders].map(folder=>path.relative(root,folder)),null,2));
 await writeFile(path.join(root,'test-results','bundle-metafiles.json'),JSON.stringify(results.map(result=>result.metafile)));

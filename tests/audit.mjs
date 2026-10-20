@@ -27,7 +27,7 @@ let browser;
 const report = {baseline,checks:[],performance:{}};
 try {
   browser = await chromium.launch({executablePath:process.env.CHROMIUM_PATH || undefined,headless:true});
-  const context = await browser.newContext({viewport:{width:1440,height:1050}});
+  const context = await browser.newContext({serviceWorkers:"block",viewport:{width:1440,height:1050}});
   context.setDefaultTimeout(15000);
   const origin = `http://127.0.0.1:${server.address().port}`;
   const requests = [];

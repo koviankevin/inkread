@@ -15,7 +15,7 @@ const browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH ||
 const samples=[];
 try {
   for(let round=0;round<3;round++) for(const name of ['baseline','current'].filter(name=>sites[name])) {
-    const context=await browser.newContext({viewport:{width:1440,height:900}});
+    const context=await browser.newContext({serviceWorkers:"block",viewport:{width:1440,height:900}});
     await context.route('**/*',route=>route.request().url().startsWith(server.origin+'/') || /^(data:|blob:)/.test(route.request().url()) ? route.continue() : route.abort());
     const page=await context.newPage();
     const client=await context.newCDPSession(page);

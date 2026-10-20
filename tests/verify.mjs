@@ -41,7 +41,7 @@ try {
   console.log('Launching test browser...');
   browser = await chromium.launch({executablePath:process.env.CHROMIUM_PATH || undefined,headless:true,timeout:30000,args:['--no-sandbox','--disable-dev-shm-usage']});
   console.log('Test browser ready.');
-  const context = await browser.newContext({viewport:{width:1440,height:1050}});
+  const context = await browser.newContext({serviceWorkers:"block",viewport:{width:1440,height:1050}});
   await context.route('**/*', route => route.request().url().startsWith(base) || /^(blob:|data:)/.test(route.request().url()) ? route.continue() : route.abort());
   const page = await context.newPage();
   const errors = [];
@@ -161,7 +161,7 @@ try {
   assert.equal(await page.locator('#user-files button').count(),0);
   assert.equal(errors.length,0,errors.join('\n'));
   pass('Clear imported files, no document persistence, no uncaught browser errors');
-  const localContext = await browser.newContext({viewport:{width:1440,height:1050}});
+  const localContext = await browser.newContext({serviceWorkers:"block",viewport:{width:1440,height:1050}});
   await localContext.route('**/*', route => /^(file:|blob:|data:)/.test(route.request().url()) ? route.continue() : route.abort());
   await localContext.setOffline(true);
   const localPage = await localContext.newPage();
