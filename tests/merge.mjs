@@ -38,6 +38,8 @@ assert.throws(()=>planRestore(full,{documents:[doc('extra.md','# extra','x')],as
 const large=new Blob([new Uint8Array(20*1024*1024)]);
 assert.throws(()=>planRestore({documents:[],assets:Array.from({length:5},(_,i)=>({path:`${i}.png`,blob:large})),positions:[],current:null},{documents:[],assets:[{path:'extra.png',blob:new Blob(['x'])}],positions:[],current:null},'merge'),{code:'RESTORE_LIMIT'});
 assert.equal(planRestore(full,{documents:[],assets:[],positions:[],current:null},'replace').documents.length,0);
+const linkTargets=Array.from({length:350},(_,i)=>[`old-${i}/${'x'.repeat(900)}.svg`,`new-${i}/${'x'.repeat(900)}.svg`]);
+assert.throws(()=>planRestore({documents:[],assets:[],positions:[],current:null},{documents:['one.md','two.md'].map(file=>({...doc(file,'# links','x'),linkBase:file,linkTargets})),assets:[],positions:[],current:null},'replace'),{code:'RESTORE_LIMIT'});
 pass('Combined capacity is checked without dropping files; explicit replacement remains available');
 
 const loaded=storedLibrarySnapshot({...existing,current:{path:'folder-a/note.md',updatedAt:1},checkpoint:{position:{...pos('shared.md','old',500),updatedAt:200},current:{path:'shared.md',updatedAt:2}},revision:'state'});
@@ -104,13 +106,16 @@ async function choose(page,value='existing') { for (const select of await page.l
 const choice=(page,kind,file)=>page.locator(`#restore-conflicts select[data-kind="${kind}"][data-path="books/${file}"]`);
 async function confirm(page) { await page.locator('#restore-confirm').click(); await page.locator('#restore-dialog').waitFor({state:'hidden'}); await saved(page); }
 async function at(page,name,amount=120) {
+  await saved(page);
   await page.getByRole('heading',{name,exact:true}).evaluate((el,y)=>window.scrollTo({top:el.getBoundingClientRect().top+scrollY+y,behavior:'instant'}),amount);
   await page.waitForTimeout(650); await saved(page); return page.getByRole('heading',{name,exact:true}).evaluate(el=>-el.getBoundingClientRect().top);
 }
 async function resumed(page,name,amount) {
   try { await page.waitForFunction(({name,amount})=>{const h=[...document.querySelectorAll('#document h2')].find(el=>el.textContent===name);return h && Math.abs(h.getBoundingClientRect().top+amount)<8;},{name,amount}); }
   catch(error) {
-    await writeFile(path.join(output,'merge-progress-failure.json'),JSON.stringify({name,amount,rows:await rows(page),page:await page.evaluate(()=>({y:scrollY,height:document.documentElement.scrollHeight,headings:[...document.querySelectorAll('#document h2')].map(el=>({name:el.textContent,top:el.getBoundingClientRect().top}))}))},null,2));
+    const snapshot=await rows(page),geometry=await page.evaluate(()=>({file:document.getElementById('current-file')?.textContent,status:document.getElementById('library-status')?.dataset.state,y:scrollY,height:document.documentElement.scrollHeight,headings:[...document.querySelectorAll('#document h2')].map(el=>({name:el.textContent,top:el.getBoundingClientRect().top}))}));
+    console.error('Progress diagnostic:',JSON.stringify({name,amount,positions:snapshot.positions,page:geometry}));
+    await writeFile(path.join(output,'merge-progress-failure.json'),JSON.stringify({name,amount,rows:snapshot,page:geometry},null,2));
     await page.screenshot({path:path.join(output,'merge-failure.png')}); throw error;
   }
   await saved(page);
@@ -234,7 +239,8 @@ try {
   await bothPage.locator('#user-files button').filter({hasText:'only-backup.md'}).click(); await assertImage(bothPage,'red');
   await bothPage.getByRole('link',{name:'備份同名文件',exact:true}).click(); await bothPage.getByRole('heading',{name:'備份共用文件',exact:true}).waitFor();
   await assertImage(bothPage,'red');
-  await bothPage.locator('#user-files button').filter({hasText:'shared (備份 1).md'}).click(); await at(bothPage,'備份接續');
+  await bothPage.locator('#user-files button').filter({hasText:'shared (備份 1).md'}).click(); const bothBackupOffset=await at(bothPage,'備份接續');
+  await resumed(bothPage,'備份接續',bothBackupOffset);
   pass('Keep both previews automatic names and restores separate document images, reference links and both original progress values');
 
   const bothDownload=bothPage.waitForEvent('download'); await bothPage.locator('#backup-library').click(); const bothArchive=path.join(temporary,'both.inkread'); await (await bothDownload).saveAs(bothArchive);
@@ -242,7 +248,7 @@ try {
   assert.equal(resolveDocumentPath(decodedBoth.documents.find(d=>d.path==='books/shared (備份 1).md'),'picture.svg'),'books/picture (備份 1).svg');
   await bothContext.close(); bothContext=undefined;
   bothContext=await setup(await chromium.launchPersistentContext(path.join(temporary,'both-profile'),{...options,viewport:{width:1440,height:900}})); await bothContext.setOffline(true);
-  bothPage=await bothContext.newPage(); await bothPage.goto(targetURL+'?both-restart=1'); await resumed(bothPage,'備份接續',120); await assertImage(bothPage,'red');
+  bothPage=await bothContext.newPage(); await bothPage.goto(targetURL+'?both-restart=1'); await resumed(bothPage,'備份接續',bothBackupOffset); await assertImage(bothPage,'red');
   await bothPage.locator('#user-files button').filter({hasText:'shared.md'}).click(); await resumed(bothPage,'目前接續',bothCurrentOffset); await assertImage(bothPage,'green');
   await preview(bothPage,archive); await choose(bothPage); await choice(bothPage,'documents','shared.md').selectOption('both'); await confirm(bothPage);
   assert((await rows(bothPage)).documents.some(d=>d.path==='books/shared (備份 2).md'));
@@ -256,7 +262,7 @@ try {
 
   await preview(local,bothArchive); await local.locator('#restore-mode').selectOption('replace'); await confirm(local);
   assert.equal((await rows(local)).documents.length,4);
-  await local.locator('#user-files button').filter({hasText:'shared (備份 1).md'}).click(); await resumed(local,'備份接續',120); await assertImage(local,'red');
+  await local.locator('#user-files button').filter({hasText:'shared (備份 1).md'}).click(); await resumed(local,'備份接續',bothBackupOffset); await assertImage(local,'red');
   await local.locator('#user-files button').filter({hasText:'shared.md'}).click(); await resumed(local,'目前接續',bothCurrentOffset); await assertImage(local,'green');
   await local.locator('#user-files button').filter({hasText:'only-backup.md'}).click(); await local.getByRole('link',{name:'備份同名文件',exact:true}).click();
   await local.getByRole('heading',{name:'備份共用文件',exact:true}).waitFor(); await assertImage(local,'red');

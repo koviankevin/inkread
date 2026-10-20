@@ -7,7 +7,12 @@ const imagePath=path=>/\.(png|jpe?g|gif|webp|avif|svg|bmp|ico)$/i.test(path);
 const safePath=path=>typeof path==='string' && path && normalizePath(path)===path && !path.startsWith('/') && !path.startsWith('範例/');
 function fail(code,message) { const error=new Error(message); error.code=code; throw error; }
 function capacity(documents,assets) {
-  if (textBytes(JSON.stringify(documents.map(({path,linkBase,linkTargets})=>({path,linkBase,linkTargets}))))>1024*1024) fail('RESTORE_LIMIT','文件連結資料超過 1 MiB，請減少文件庫內容後重試。');
+  // Stop per record: shared mappings can expand when serialized across many copies.
+  let linkBytes=0;
+  for (const {path,linkBase,linkTargets} of documents) {
+    linkBytes+=textBytes(JSON.stringify({path,linkBase,linkTargets}));
+    if (linkBytes>1024*1024) fail('RESTORE_LIMIT','文件連結資料超過 1 MiB，請減少文件庫內容後重試。');
+  }
   if (documents.length>MAX_DOCUMENTS || documents.some(doc=>doc.bytes>MAX_DOCUMENT_BYTES) || documents.reduce((n,doc)=>n+doc.bytes,0)>MAX_TEXT_BYTES || assets.length>MAX_IMPORT_FILES || assets.some(asset=>asset.blob.size>MAX_IMAGE_BYTES) || assets.reduce((n,asset)=>n+asset.blob.size,0)>MAX_ASSET_BYTES) fail('RESTORE_LIMIT','合併後超過容量限制：文件最多 200 份／20 MiB，圖片最多 1,000 張／100 MiB。請減少文件庫內容，或改用取代。');
 }
 function validPosition(row,doc) {
