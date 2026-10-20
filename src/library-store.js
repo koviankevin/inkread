@@ -58,7 +58,10 @@ export function createLibraryStore(onClear=()=>{}) {
             epoch=request.result; failure=new Error('Library cleared in another tab'); failure.code='LIBRARY_CLEARED';
             tx.abort(); onClear(); return;
           }
-          try { action(tx); } catch(error) { failure=error; tx.abort(); }
+          try { action(tx); } catch(error) {
+            failure=error;
+            try { tx.abort(); } catch { /* Already aborted; onabort still reports the failure. */ }
+          }
         };
       });
     });
@@ -97,6 +100,19 @@ export function createLibraryStore(onClear=()=>{}) {
     },
     checkpoint(current,position) {
       try { localStorage.setItem(checkpointKey,JSON.stringify({epoch,current,position})); } catch { /* IDB still saves periodically. */ }
+    },
+    async replace({documents,assets,positions,current}) {
+      const next=newRevision();
+      // Clearing and all replacement records commit together, or all roll back.
+      await mutate(tx=>{
+        for (const store of ['documents','assets','positions','meta']) tx.objectStore(store).clear();
+        for (const [name,rows] of [['documents',documents],['assets',assets],['positions',positions]]) for (const row of rows) tx.objectStore(name).put(row);
+        tx.objectStore('meta').put(next,'epoch');
+        tx.objectStore('meta').put(current,'current');
+      });
+      epoch=next;
+      try { localStorage.removeItem(checkpointKey); } catch { /* Optional checkpoint. */ }
+      channel?.postMessage({type:'clear',epoch});
     },
     async clear() {
       const next = newRevision();

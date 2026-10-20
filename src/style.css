@@ -20,3 +20,4 @@
 @media print{.offline-state{display:none!important}}
 
 .offline-state{flex-wrap:wrap}.library-state{display:inline-flex;align-items:center;gap:6px;padding-left:8px;border-left:1px solid var(--line)}.library-state [data-state=error]{color:var(--heading)}
+.library-transfer{display:flex;gap:8px;margin-bottom:12px}.library-transfer button{flex:1;padding:8px 4px;border:1px solid var(--line);border-radius:6px;color:var(--accent);font-size:11px;background:var(--surface)}.library-transfer button:hover{background:var(--accent-bg)}button:disabled{cursor:wait;opacity:.5}.transfer-summary{font-size:13px;line-height:1.8;overflow-wrap:anywhere}#restore-warning{line-height:1.9;margin-bottom:16px}#restore-error{font-size:12px;line-height:1.8;color:var(--heading)}
