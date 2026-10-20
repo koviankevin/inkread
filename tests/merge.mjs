@@ -73,7 +73,10 @@ async function at(page,name,amount=120) {
 }
 async function resumed(page,name,amount) {
   try { await page.waitForFunction(({name,amount})=>{const h=[...document.querySelectorAll('#document h2')].find(el=>el.textContent===name);return h && Math.abs(h.getBoundingClientRect().top+amount)<8;},{name,amount}); }
-  catch(error) { await page.screenshot({path:path.join(output,'merge-failure.png')}); throw error; }
+  catch(error) {
+    await writeFile(path.join(output,'merge-progress-failure.json'),JSON.stringify({name,amount,rows:await rows(page),page:await page.evaluate(()=>({y:scrollY,height:document.documentElement.scrollHeight,headings:[...document.querySelectorAll('#document h2')].map(el=>({name:el.textContent,top:el.getBoundingClientRect().top}))}))},null,2));
+    await page.screenshot({path:path.join(output,'merge-failure.png')}); throw error;
+  }
   await saved(page);
 }
 async function rows(page) {
@@ -96,12 +99,28 @@ try {
   let page=await targetContext.newPage(); await page.goto(targetURL); await page.locator('#offline-status[data-state=ready]').waitFor();
   await page.locator('#folder-input').setInputFiles(currentFolder); await page.locator('#user-files button').filter({hasText:'only-current.md'}).click();
   const uniqueOffset=await at(page,'原有接續');
-  await page.locator('#user-files button').filter({hasText:'shared.md'}).click(); const currentOffset=await at(page,'目前接續');
-  let before=await rows(page); await targetContext.setOffline(true); await preview(page,archive);
+  await page.locator('#user-files button').filter({hasText:'shared.md'}).click(); let currentOffset=await at(page,'目前接續');
+  let before=await rows(page); await targetContext.setOffline(true);
+  // Select a backup in the same event as a layout change, before ResizeObserver.
+  currentOffset=await page.evaluate(bytes=>{
+    document.querySelector('.offline-state').style.minHeight='100px';
+    const heading=[...document.querySelectorAll('#document h2')].find(h=>h.textContent==='目前接續');
+    window.scrollTo({top:heading.getBoundingClientRect().top+scrollY+120,behavior:'instant'});
+    const offset=-heading.getBoundingClientRect().top,transfer=new DataTransfer();
+    transfer.items.add(new File([new Uint8Array(bytes)],'backup.inkread',{type:'application/octet-stream'}));
+    const input=document.getElementById('backup-input'); input.files=transfer.files; input.dispatchEvent(new Event('change',{bubbles:true}));
+    return offset;
+  },[...await readFile(archive)]);
+  await page.locator('#restore-dialog').waitFor({state:'visible'});
   assert.equal(await page.locator('#restore-conflicts select').count(),2); assert.equal(await page.locator('#restore-confirm').isDisabled(),true);
   await page.locator('#restore-conflicts summary').first().click(); assert.equal(await page.locator('#restore-conflicts script').count(),0); assert.equal(await page.evaluate(()=>window.__mergePreviewAttack),undefined);
-  await choose(page); await page.screenshot({path:path.join(output,'merge-preview.png')});
+  await choose(page);
+  const imagePreview=page.locator('.restore-conflict').filter({has:page.locator('select[data-kind=assets]')});
+  await imagePreview.locator('summary').click();
+  await page.waitForFunction(()=>{const images=[...document.querySelectorAll('#restore-conflicts img')];return images.length===2 && images.every(img=>img.complete && img.naturalWidth>0);});
+  await page.screenshot({path:path.join(output,'merge-preview.png')});
   await page.locator('#restore-cancel').click(); await saved(page);
+  await resumed(page,'目前接續',currentOffset);
   assert.deepEqual((await rows(page)).documents,before.documents); assert.deepEqual((await rows(page)).assets,before.assets);
   pass('Merge is the default; unresolved versions block confirmation and cancellation preserves destination data');
 
@@ -145,7 +164,11 @@ try {
   await page.locator('#user-files button').filter({hasText:'shared.md'}).click(); await resumed(page,'備份接續',backupOffset); await page.locator('.katex').waitFor(); await page.locator('.mermaid-container svg').waitFor();
   pass('Offline browser restart preserves the merged library and both chosen and untouched reading positions');
 
-  await page.setViewportSize({width:390,height:844}); await page.locator('#sidebar-toggle').click(); await preview(page,archive);
+  await page.evaluate(()=>{document.querySelector('.offline-state').style.minHeight='';});
+  await page.setViewportSize({width:390,height:844}); await page.waitForTimeout(1200); await saved(page);
+  const settledPositions=(await rows(page)).positions; await page.waitForTimeout(1100); await saved(page);
+  assert.deepEqual((await rows(page)).positions,settledPositions,'Idle status labels must not cause a repeated progress-save loop');
+  await page.locator('#sidebar-toggle').click(); await preview(page,archive);
   await choose(page); await page.screenshot({path:path.join(output,'merge-mobile.png')});
   await page.locator('#restore-mode').selectOption('replace'); assert.equal(await page.locator('#restore-conflicts select').count(),0); assert.equal(await page.locator('#restore-confirm').textContent(),'還原並取代文件庫');
   await page.locator('#restore-mode').selectOption('merge'); assert.equal(await page.locator('#restore-confirm').isDisabled(),false);

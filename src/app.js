@@ -94,7 +94,7 @@ function rememberPosition() {
   const height=Math.max(1,(headingPositions[index+1] || end) - (top || 0));
   const position={path:current.path,revision:current.revision,y,ratio:y/Math.max(1,end-window.innerHeight),anchor:activeHeadings[index]?.id || '',fraction:Math.max(0,Math.min(1,(y+150-(top || 0))/height)),atEnd:y+window.innerHeight>=end-5,updatedAt:Date.now()};
   const previous=readingPositions.get(current.path);
-  if (previous && Math.abs(previous.y-y)<1 && previous.anchor===position.anchor && previous.atEnd===position.atEnd) return;
+  if (previous && Math.abs(previous.y-y)<1 && previous.anchor===position.anchor && previous.atEnd===position.atEnd && Math.abs(previous.fraction-position.fraction)<1e-6 && Math.abs(previous.ratio-position.ratio)<1e-6) return;
   readingPositions.set(current.path,position); dirtyPositions.set(current.path,position);
   selectForSaving();
 }
@@ -187,7 +187,7 @@ function transferAvailable() {
 }
 async function backupLibrary() {
   if (!transferAvailable()) return;
-  updateProgress();
+  measureHeadings=true; updateProgress();
   const snapshot={documents:[...documents.values()].filter(doc=>!doc.demo).map(doc=>({...doc})),assets:[...assetBlobs].map(([path,blob])=>({path,blob})),positions:[...readingPositions.values()].filter(position=>position.revision===documents.get(position.path)?.revision),current:current.path};
   transferBusy=true; renderLibraryStatus();
   try {
@@ -202,7 +202,7 @@ async function backupLibrary() {
 }
 async function previewRestore(file) {
   if (!file || !transferAvailable()) return;
-  updateProgress(); restorePreparing=true;
+  measureHeadings=true; updateProgress(); restorePreparing=true;
   transferBusy=true; renderLibraryStatus();
   try {
     restoreSnapshot=await decodeBackup(file);
