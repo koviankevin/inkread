@@ -160,7 +160,9 @@ try {
 
   const secondArchive=path.join(temporary,'second.inkread'); await backup(page,secondArchive);
   const again=await decodeBackup(new Blob([await readFile(secondArchive)]));
-  assert.deepEqual(again.documents.map(d=>d.source),content.documents.map(d=>d.source));
+  // Folder enumeration and IndexedDB key order can differ across platforms.
+  const byPath=docs=>docs.map(({path,source,pasted})=>({path,source,pasted})).sort((a,b)=>a.path<b.path ? -1 : a.path>b.path ? 1 : 0);
+  assert.deepEqual(byPath(again.documents),byPath([...content.documents].reverse()));
   assert.deepEqual(Buffer.from(await again.assets[0].blob.arrayBuffer()),Buffer.from(await content.assets[0].blob.arrayBuffer()));
   assert.equal(again.positions.length,2);
   await page.setViewportSize({width:390,height:844}); await page.locator('#sidebar-toggle').click();
