@@ -43,7 +43,7 @@ export function createLibraryStore(onClear=()=>{}) {
   }
   const requestValue = request => new Promise((resolve,reject)=>{ request.onsuccess=()=>resolve(request.result); request.onerror=()=>reject(request.error); });
   const enqueue = action => { const pending=queue.then(action); queue=pending.catch(()=>{}); return pending; };
-  function mutate(action,{reset=false}={}) {
+  function mutate(action,{reset=false,expectedRevision}={}) {
     const expected = epoch;
     return enqueue(async()=>{
       const db = await open();
@@ -58,9 +58,23 @@ export function createLibraryStore(onClear=()=>{}) {
             epoch=request.result; failure=new Error('Library cleared in another tab'); failure.code='LIBRARY_CLEARED';
             tx.abort(); onClear(); return;
           }
-          try { action(tx); } catch(error) {
-            failure=error;
-            try { tx.abort(); } catch { /* Already aborted; onabort still reports the failure. */ }
+          const apply=()=>{
+            try {
+              action(tx);
+              tx.objectStore('meta').put(newRevision(),'revision');
+            } catch(error) {
+              failure=error;
+              try { tx.abort(); } catch { /* Already aborted; onabort still reports the failure. */ }
+            }
+          };
+          if (expectedRevision===undefined) apply();
+          else {
+            const revision=tx.objectStore('meta').get('revision');
+            revision.onsuccess=()=>{
+              if ((revision.result ?? null)!==expectedRevision) {
+                failure=new Error('Library changed during restore preview'); failure.code='LIBRARY_CHANGED'; tx.abort();
+              } else apply();
+            };
           }
         };
       });
@@ -71,18 +85,19 @@ export function createLibraryStore(onClear=()=>{}) {
       const previousEpoch=epoch;
       const db = await open();
       const tx=db.transaction(['documents','assets','positions','meta'],'readonly');
-      const [documents,assets,positions,current,generation] = await Promise.all([
+      const [documents,assets,positions,current,generation,revision] = await Promise.all([
         requestValue(tx.objectStore('documents').getAll(undefined,MAX_DOCUMENTS+1)),
         requestValue(tx.objectStore('assets').getAll(undefined,MAX_IMPORT_FILES+1)),
         requestValue(tx.objectStore('positions').getAll(undefined,MAX_DOCUMENTS+1)),
         requestValue(tx.objectStore('meta').get('current')),
         requestValue(tx.objectStore('meta').get('epoch')),
+        requestValue(tx.objectStore('meta').get('revision')),
       ]);
       if (epoch===previousEpoch) epoch=generation;
       let checkpoint;
       try { checkpoint=JSON.parse(localStorage.getItem(checkpointKey)); } catch { /* Optional shutdown checkpoint. */ }
       if (checkpoint?.epoch !== epoch) checkpoint=undefined;
-      return {documents,assets,positions,current,checkpoint};
+      return {documents,assets,positions,current,checkpoint,revision:revision ?? null};
     },
     write({documents=[],assets=[],positions=[],current}) {
       return mutate(tx=>{
@@ -101,7 +116,7 @@ export function createLibraryStore(onClear=()=>{}) {
     checkpoint(current,position) {
       try { localStorage.setItem(checkpointKey,JSON.stringify({epoch,current,position})); } catch { /* IDB still saves periodically. */ }
     },
-    async replace({documents,assets,positions,current}) {
+    async replace({documents,assets,positions,current},expectedRevision) {
       const next=newRevision();
       // Clearing and all replacement records commit together, or all roll back.
       await mutate(tx=>{
@@ -109,7 +124,7 @@ export function createLibraryStore(onClear=()=>{}) {
         for (const [name,rows] of [['documents',documents],['assets',assets],['positions',positions]]) for (const row of rows) tx.objectStore(name).put(row);
         tx.objectStore('meta').put(next,'epoch');
         tx.objectStore('meta').put(current,'current');
-      });
+      },{expectedRevision});
       epoch=next;
       try { localStorage.removeItem(checkpointKey); } catch { /* Optional checkpoint. */ }
       channel?.postMessage({type:'clear',epoch});

@@ -5,6 +5,7 @@ import {loadVendor} from './vendor-loader.js';
 import {prepareOffline} from './offline.js';
 import {createLibraryStore,newRevision} from './library-store.js';
 import {encodeBackup,decodeBackup} from './library-backup.js';
+import {storedLibrarySnapshot,restoreConflicts,planRestore} from './library-restore.js';
 import {normalizePath, resolvePath, isMarkdown, imageKind} from './paths.js';
 import {MAX_DOCUMENT_BYTES, MAX_DOCUMENTS, MAX_TEXT_BYTES, MAX_IMAGE_BYTES, MAX_ASSET_BYTES, MAX_IMPORT_FILES, textBytes} from './limits.js';
 import introduction from '../samples/開始閱讀.md';
@@ -50,6 +51,8 @@ const printMedia=matchMedia('print');
 let libraryLoading = true, libraryReady = false, libraryGeneration = 0;
 let saveTimer, savePromise, pendingSelection, storageError, clearFailed = false, clearing = false, resumeTask;
 let transferBusy=false, restoreCommitting=false, restoreSnapshot, importsInFlight=0;
+let restoreBase, restorePreparing=false;
+const restoreChoices=new Map(), restorePreviewURLs=[];
 const library = createLibraryStore(()=>{
   libraryReady=false; storageError=undefined; clearFailed=false; resetLibraryMemory();
   toast('已同步其他分頁的文件庫變更，重新開啟可讀取最新文件庫。');
@@ -85,7 +88,7 @@ function selectForSaving() {
   scheduleLibrarySave();
 }
 function rememberPosition() {
-  if (libraryLoading || clearing || resumeTask || printMedia.matches || current.demo || displayedDocument!==current || documents.get(current.path)!==current) return;
+  if (libraryLoading || clearing || restorePreparing || (transferBusy && restoreBase) || resumeTask || printMedia.matches || current.demo || displayedDocument!==current || documents.get(current.path)!==current) return;
   const y=window.scrollY, end=document.documentElement.scrollHeight;
   const index=Math.max(0,activeHeadingIndex), top=headingPositions[index];
   const height=Math.max(1,(headingPositions[index+1] || end) - (top || 0));
@@ -96,7 +99,7 @@ function rememberPosition() {
   selectForSaving();
 }
 function checkpointLibrary() {
-  if (libraryLoading || clearing || !libraryReady) return;
+  if (libraryLoading || clearing || (transferBusy && restoreBase) || !libraryReady) return;
   if (!resumeTask) updateProgress();
   library.checkpoint(pendingSelection || {path:current.path,updatedAt:Date.now()},readingPositions.get(current.path));
 }
@@ -199,32 +202,91 @@ async function backupLibrary() {
 }
 async function previewRestore(file) {
   if (!file || !transferAvailable()) return;
+  updateProgress(); restorePreparing=true;
   transferBusy=true; renderLibraryStatus();
   try {
     restoreSnapshot=await decodeBackup(file);
+    await refreshRestoreDestination(true);
+    $('restore-mode').value='merge';
     $('restore-summary').textContent=`${file.name}：${restoreSnapshot.documents.length} 份文件、${restoreSnapshot.assets.length} 張圖片、${restoreSnapshot.positions.length} 份閱讀進度。`;
-    $('restore-warning').textContent=`還原將取代此瀏覽器目前的 ${[...documents.values()].filter(doc=>!doc.demo).length} 份文件、${assetBlobs.size} 張圖片與閱讀進度。請先備份目前文件庫；硬碟上的原始文件不受影響。`;
-    $('restore-error').textContent=''; $('restore-dialog').showModal();
+    renderRestoreOptions(); $('restore-dialog').showModal();
   } catch {
+    const validBackup=!!restoreSnapshot;
+    restoreBase=undefined;
     restoreSnapshot=undefined; transferBusy=false; renderLibraryStatus();
-    toast('無法讀取備份：格式不支援、內容損壞或超過容量限制。目前文件庫未變更。');
+    toast(validBackup ? '目前文件庫尚未保存或無法讀取，請重試保存後再還原。原資料仍保留。' : '無法讀取備份：格式不支援、內容損壞或超過容量限制。目前文件庫未變更。');
+  } finally { restorePreparing=false; }
+}
+async function refreshRestoreDestination(flush) {
+  if (flush) {
+    for (let attempt=0;attempt<3;attempt++) {
+      await flushLibrary();
+      if (storageError || !hasPendingSave()) break;
+    }
+    if (storageError || hasPendingSave()) throw new Error('Existing library not saved');
+  }
+  restoreBase=storedLibrarySnapshot(await library.load()); restoreChoices.clear();
+}
+function clearRestorePreviews() { for (const url of restorePreviewURLs.splice(0)) URL.revokeObjectURL(url); }
+function restoreVersionLabel(conflict,row,positions) {
+  if (conflict.kind==='assets') return `${(row.blob.size/1024).toFixed(1)} KiB`;
+  const position=positions.find(position=>position.path===row.path);
+  return `${row.source.length.toLocaleString()} 字元，${position ? `已讀 ${Math.round((position.atEnd ? 1 : position.ratio)*100)}%` : '尚無閱讀進度'}`;
+}
+function renderRestoreOptions() {
+  clearRestorePreviews(); $('restore-conflicts').replaceChildren();
+  if ($('restore-mode').value==='merge') for (const conflict of restoreConflicts(restoreBase,restoreSnapshot)) {
+    const row=document.createElement('div'); row.className='restore-conflict';
+    const label=document.createElement('label'); label.textContent=`${conflict.kind==='documents' ? '文件' : '圖片'}：${conflict.path}`;
+    const select=document.createElement('select'); select.className='text-input'; select.dataset.kind=conflict.kind; select.dataset.path=conflict.path;
+    select.setAttribute('aria-label',`保留版本：${conflict.path}`);
+    for (const [value,text] of [['','請選擇要保留的版本'],['existing',`目前版本（${restoreVersionLabel(conflict,conflict.existing,restoreBase.positions)}）`],['backup',`備份版本（${restoreVersionLabel(conflict,conflict.incoming,restoreSnapshot.positions)}）`]]) {
+      const option=document.createElement('option'); option.value=value; option.textContent=text; select.append(option);
+    }
+    select.value=restoreChoices.get(conflict.key) || '';
+    select.addEventListener('change',()=>{ restoreChoices.set(conflict.key,select.value); updateRestorePreview(); });
+    label.append(select); row.append(label);
+    const details=document.createElement('details'),summary=document.createElement('summary');
+    summary.textContent=conflict.kind==='documents' ? '比較文件內容與進度' : '比較圖片'; details.append(summary);
+    details.addEventListener('toggle',()=>{
+      if (!details.open || details.childElementCount>1) return;
+      for (const [title,entry] of [['目前版本',conflict.existing],['備份版本',conflict.incoming]]) {
+        const heading=document.createElement('h4'); heading.textContent=title; details.append(heading);
+        if (conflict.kind==='documents') {
+          const pre=document.createElement('pre'); pre.textContent=entry.source.slice(0,2000)+(entry.source.length>2000 ? '\n…（僅預覽前 2,000 字元）' : ''); details.append(pre);
+        } else {
+          const img=document.createElement('img'),url=URL.createObjectURL(entry.blob); restorePreviewURLs.push(url); img.src=url; img.alt=title; details.append(img);
+        }
+      }
+    });
+    row.append(details); $('restore-conflicts').append(row);
+  }
+  updateRestorePreview();
+}
+function updateRestorePreview() {
+  const mode=$('restore-mode').value,merge=mode==='merge';
+  $('restore-warning').textContent=merge ? `保留目前 ${restoreBase.documents.length} 份文件與 ${restoreBase.assets.length} 張圖片，加入不重複的備份內容。以完整路徑判斷同名衝突，文件選哪一份就保留那份閱讀進度；同路徑圖片另行選擇。` : `將取代目前 ${restoreBase.documents.length} 份文件、${restoreBase.assets.length} 張圖片與閱讀進度。請先備份目前文件庫；硬碟上的原始文件不受影響。`;
+  $('restore-confirm').textContent=merge ? '合併文件庫' : '還原並取代文件庫';
+  $('restore-error').textContent=''; $('restore-confirm').disabled=false;
+  try {
+    const plan=planRestore(restoreBase,restoreSnapshot,mode,restoreChoices);
+    $('restore-result').textContent=`完成後：${plan.documents.length} 份文件、${plan.assets.length} 張圖片、${plan.positions.length} 份閱讀進度。`;
+  } catch(error) {
+    $('restore-result').textContent=error.message; $('restore-confirm').disabled=true;
   }
 }
 async function restoreLibrary() {
-  if (!restoreSnapshot || restoreCommitting) return;
+  if (!restoreSnapshot || !restoreBase || restoreCommitting || $('restore-confirm').disabled) return;
   restoreCommitting=true; $('restore-confirm').disabled=true; $('restore-cancel').disabled=true;
+  $('restore-options').disabled=true;
   $('restore-error').textContent=''; renderLibraryStatus();
   let committed=false;
   try {
-    updateProgress(); await flushLibrary();
-    if (storageError || hasPendingSave()) throw new Error('Existing library not saved');
+    const snapshot=planRestore(restoreBase,restoreSnapshot,$('restore-mode').value,restoreChoices);
     clearing=true; libraryGeneration++;
-    const snapshot=restoreSnapshot;
-    const restoredDocuments=snapshot.documents.map(doc=>({...doc,name:doc.path.split('/').pop(),revision:newRevision()}));
-    const revisions=new Map(restoredDocuments.map(doc=>[doc.path,doc.revision]));
-    const positions=snapshot.positions.map(position=>({...position,revision:revisions.get(position.path)}));
+    const restoredDocuments=snapshot.documents,positions=snapshot.positions;
     const selected=snapshot.current || restoredDocuments[0]?.path || demoDocs[0].path;
-    await library.replace({documents:restoredDocuments,assets:snapshot.assets,positions,current:{path:selected,updatedAt:Date.now()}});
+    await library.replace({documents:restoredDocuments,assets:snapshot.assets,positions,current:{path:selected,updatedAt:Date.now()}},restoreBase.revision);
     committed=true;
     resetLibraryMemory();
     for (const doc of restoredDocuments) {
@@ -238,11 +300,19 @@ async function restoreLibrary() {
     showDocument(documents.get(selected) || demoDocs[0],{record:false,resume:true});
     restoreCommitting=false; $('restore-dialog').close();
     toast('已還原文件、圖片與閱讀進度，可離線接續閱讀。');
-  } catch {
-    $('restore-error').textContent=committed ? '資料已保存，請重新開啟墨閱以讀取還原的文件庫。' : '還原未完成，原文件庫仍保留。請確認瀏覽器允許儲存且空間足夠，再重試。';
+  } catch(error) {
+    if (['LIBRARY_CHANGED','LIBRARY_CLEARED'].includes(error.code)) {
+      try {
+        await refreshRestoreDestination(false); renderRestoreOptions();
+        $('restore-error').textContent='其他分頁已更新文件庫，尚未還原。已重新檢查，請再次確認並選擇衝突版本。';
+      } catch { $('restore-error').textContent='無法重新讀取文件庫，請取消後重試。原資料仍保留。'; }
+    } else $('restore-error').textContent=committed ? '資料已保存，請重新開啟墨閱以讀取還原的文件庫。' : '還原未完成，原文件庫仍保留。請確認瀏覽器允許儲存且空間足夠，再重試。';
   } finally {
     clearing=false; restoreCommitting=false;
-    $('restore-confirm').disabled=false; $('restore-cancel').disabled=false; renderLibraryStatus();
+    if (restoreBase && restoreSnapshot) {
+      try { planRestore(restoreBase,restoreSnapshot,$('restore-mode').value,restoreChoices); $('restore-confirm').disabled=false; } catch { $('restore-confirm').disabled=true; }
+    }
+    $('restore-options').disabled=false; $('restore-cancel').disabled=false; renderLibraryStatus();
   }
 }
 async function resumePosition(position,task) {
@@ -719,7 +789,7 @@ function openPaste(content) {
   if (typeof content === 'string') $('paste-content').value = content;
   $('paste-count').textContent = `${$('paste-content').value.length.toLocaleString()} 字元`;
   $('paste-dialog').showModal();
-  setTimeout(() => $('paste-content').focus(),50);
+  $('paste-content').focus();
 }
 
 async function copyText(text) {
@@ -754,9 +824,10 @@ $('backup-input').addEventListener('change',event=>{
   const file=event.target.files[0]; event.target.value=''; void previewRestore(file);
 });
 $('restore-confirm').addEventListener('click',()=>{ void restoreLibrary(); });
+$('restore-mode').addEventListener('change',renderRestoreOptions);
 $('restore-dialog').addEventListener('cancel',event=>{ if (restoreCommitting) event.preventDefault(); });
 $('restore-dialog').addEventListener('close',()=>{
-  restoreSnapshot=undefined; transferBusy=false; renderLibraryStatus();
+  clearRestorePreviews(); restoreChoices.clear(); restoreBase=undefined; restoreSnapshot=undefined; transferBusy=false; renderLibraryStatus(); scheduleProgress();
 });
 $('library-retry').addEventListener('click',()=>{
   if (clearFailed) void clearLibrary();

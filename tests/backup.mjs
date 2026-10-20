@@ -61,7 +61,7 @@ async function backup(page,filename) {
   const download=page.waitForEvent('download'); await page.locator('#backup-library').click();
   const item=await download; assert(item.suggestedFilename().endsWith('.inkread')); await item.saveAs(filename); await saved(page);
 }
-async function preview(page,file) { await page.locator('#backup-input').setInputFiles(file); await page.locator('#restore-dialog').waitFor({state:'visible'}); }
+async function preview(page,file) { await page.locator('#backup-input').setInputFiles(file); await page.locator('#restore-dialog').waitFor({state:'visible'}); await page.locator('#restore-mode').selectOption('replace'); }
 async function offset(page,name,amount=120) {
   await page.getByRole('heading',{name,exact:true}).evaluate((el,y)=>window.scrollTo({top:el.getBoundingClientRect().top+scrollY+y,behavior:'instant'}),amount);
   await page.waitForTimeout(650); await saved(page);
@@ -121,6 +121,7 @@ try {
   await page.evaluate(()=>{delete crypto.subtle;});
   pass('Invalid backups and unavailable cryptography leave saved documents unchanged and show clear feedback');
 
+  const other=await receiver.newPage(); await other.goto(targetURL); await other.locator('#document h1').filter({hasText:'原文件庫仍保留'}).waitFor(); await saved(other);
   await preview(page,archive);
   await page.evaluate(()=>{
     window.__backupClear=IDBObjectStore.prototype.clear;
@@ -133,7 +134,6 @@ try {
   await page.locator('#restore-confirm').click(); await page.locator('#restore-error').filter({hasText:'原文件庫仍保留'}).waitFor();
   assert.equal((await rows(page)).documents[0].path,'keep.md');
   await page.evaluate(()=>{IDBObjectStore.prototype.clear=window.__backupClear;});
-  const other=await receiver.newPage(); await other.goto(targetURL); await other.locator('#document h1').filter({hasText:'原文件庫仍保留'}).waitFor();
   await page.locator('#restore-confirm').click(); await page.locator('#restore-dialog').waitFor({state:'hidden'});
   await positionRestored(page,'接續閱讀',readerOffset);
   assert.equal((await rows(page)).documents.length,2);

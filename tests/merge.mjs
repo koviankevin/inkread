@@ -1,0 +1,166 @@
+import {chromium} from 'playwright-core';
+import assert from 'node:assert/strict';
+import {mkdir,mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
+import path from 'node:path';
+import {fileURLToPath,pathToFileURL} from 'node:url';
+import {storedLibrarySnapshot,restoreConflicts,planRestore} from '../src/library-restore.js';
+import {serveSites} from './site-server.mjs';
+
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),output=path.join(root,'test-results');
+await mkdir(output,{recursive:true});
+const temporary=await mkdtemp(path.join(output,'merge-test-')),results=[],errors=[];
+const pass=name=>{results.push(name);console.log(`PASS ${name}`);};
+const pos=(path,revision,y=100)=>({path,revision,y,ratio:.3,fraction:.2,anchor:'section',atEnd:false,updatedAt:100});
+const doc=(path,source,revision)=>({path,source,revision,bytes:Buffer.byteLength(source),pasted:false});
+const existing={documents:[doc('shared.md','# current','old'),doc('folder-a/note.md','# unique','unique')],assets:[{path:'picture.svg',blob:new Blob(['current'])}],positions:[pos('shared.md','old'),pos('folder-a/note.md','unique')],current:'shared.md'};
+const incoming={documents:[doc('shared.md','# backup','unused'),doc('folder-b/note.md','# another','unused2')],assets:[{path:'picture.svg',blob:new Blob(['backup'])},{path:'extra.svg',blob:new Blob(['extra'])}],positions:[pos('shared.md','unused',300)],current:'folder-b/note.md'};
+const conflicts=restoreConflicts(existing,incoming);
+assert.deepEqual(conflicts.map(c=>c.key),['documents:shared.md','assets:picture.svg']);
+assert.throws(()=>planRestore(existing,incoming,'merge'),{code:'RESTORE_CONFLICT'});
+const keep=new Map(conflicts.map(c=>[c.key,'existing'])),take=new Map(conflicts.map(c=>[c.key,'backup']));
+const kept=planRestore(existing,incoming,'merge',keep),taken=planRestore(existing,incoming,'merge',take);
+const mixed=planRestore(existing,incoming,'merge',new Map([['documents:shared.md','backup'],['assets:picture.svg','existing']]));
+assert.equal(mixed.documents.find(d=>d.path==='shared.md').source,'# backup'); assert.equal(await mixed.assets[0].blob.text(),'current');
+assert.equal(kept.documents.length,3); assert.equal(kept.assets.length,2); assert.equal(kept.current,'shared.md');
+assert.equal(kept.documents.find(d=>d.path==='shared.md').revision,'old'); assert.equal(kept.positions.find(p=>p.path==='shared.md').y,100);
+assert.equal(await kept.assets[0].blob.text(),'current'); assert.equal(await taken.assets[0].blob.text(),'backup');
+assert.equal(taken.positions.find(p=>p.path==='shared.md').y,300);
+assert.equal(taken.positions.find(p=>p.path==='shared.md').revision,taken.documents.find(d=>d.path==='shared.md').revision);
+assert.equal(taken.positions.find(p=>p.path==='folder-a/note.md').revision,'unique');
+const noProgress=planRestore(existing,{...incoming,positions:[]},'merge',take);
+assert.equal(noProgress.positions.some(p=>p.path==='shared.md'),false);
+pass('Merge preserves unique paths and selected document progress; image choices are independent');
+
+const full={documents:Array.from({length:200},(_,i)=>doc(`file-${i}.md`,'# file',String(i))),assets:[],positions:[],current:null};
+assert.throws(()=>planRestore(full,{documents:[doc('extra.md','# extra','x')],assets:[],positions:[],current:null},'merge'),{code:'RESTORE_LIMIT'});
+const large=new Blob([new Uint8Array(20*1024*1024)]);
+assert.throws(()=>planRestore({documents:[],assets:Array.from({length:5},(_,i)=>({path:`${i}.png`,blob:large})),positions:[],current:null},{documents:[],assets:[{path:'extra.png',blob:new Blob(['x'])}],positions:[],current:null},'merge'),{code:'RESTORE_LIMIT'});
+assert.equal(planRestore(full,{documents:[],assets:[],positions:[],current:null},'replace').documents.length,0);
+pass('Combined capacity is checked without dropping files; explicit replacement remains available');
+
+const loaded=storedLibrarySnapshot({...existing,current:{path:'folder-a/note.md',updatedAt:1},checkpoint:{position:{...pos('shared.md','old',500),updatedAt:200},current:{path:'shared.md',updatedAt:2}},revision:'state'});
+assert.equal(loaded.current,'shared.md'); assert.equal(loaded.positions.find(p=>p.path==='shared.md').y,500); assert.equal(loaded.revision,'state');
+assert.equal(storedLibrarySnapshot({...existing,current:null,checkpoint:{position:pos('shared.md','stale')},revision:null}).positions.find(p=>p.path==='shared.md').y,100);
+pass('Destination snapshots preserve valid latest checkpoints and ignore stale content revisions');
+
+const paragraphs='合併文件庫後，既有文件、圖片與閱讀進度必須保留，同名版本由使用者選擇。\n\n'.repeat(32);
+const currentSource='# 目前共用文件\n\n![圖片](picture.svg)\n\n## 目前段落\n\n'+paragraphs+'## 目前接續\n\n'+paragraphs;
+const backupSource='# 備份共用文件\n\n![圖片](picture.svg)\n\n<script>window.__mergePreviewAttack=true</script>\n\n$$\\frac{1}{2}$$\n\n```mermaid\nflowchart LR\n A[合併] --> B[保留進度]\n```\n\n## 備份段落\n\n'+paragraphs+'## 備份接續\n\n'+paragraphs;
+const onlyCurrent='# 原有獨立文件\n\n![獨有圖片](current.svg)\n\n## 原有開頭\n\n'+paragraphs+'## 原有接續\n\n'+paragraphs;
+const image=color=>`<svg xmlns="http://www.w3.org/2000/svg" width="600" height="100"><rect width="600" height="100" fill="${color}"/></svg>`;
+const currentFolder=path.join(temporary,'current/books'),backupFolder=path.join(temporary,'backup/books');
+for (const folder of [currentFolder,backupFolder]) await mkdir(folder,{recursive:true});
+await writeFile(path.join(currentFolder,'shared.md'),currentSource); await writeFile(path.join(currentFolder,'only-current.md'),onlyCurrent);
+await writeFile(path.join(currentFolder,'picture.svg'),image('green')); await writeFile(path.join(currentFolder,'current.svg'),image('blue'));
+await writeFile(path.join(backupFolder,'shared.md'),backupSource); await writeFile(path.join(backupFolder,'only-backup.md'),'# 備份獨立文件');
+await writeFile(path.join(backupFolder,'picture.svg'),image('red')); await writeFile(path.join(backupFolder,'extra.svg'),image('orange'));
+const server=await serveSites({source:path.join(root,'dist'),target:path.join(root,'dist')});
+const sourceURL=server.origin+'/source/',targetURL=server.origin+'/target/',options={executablePath:process.env.CHROMIUM_PATH || undefined,headless:true};
+let browser,sourceContext,targetContext,localContext;
+async function setup(ctx) {
+  ctx.setDefaultTimeout(30000);
+  await ctx.route('**/*',route=>route.request().url().startsWith(server.origin+'/') || /^(file:|blob:|data:)/.test(route.request().url()) ? route.continue() : route.abort());
+  ctx.on('page',page=>page.on('pageerror',error=>errors.push(error.message))); return ctx;
+}
+const saved=page=>page.locator('#library-status[data-state=saved]').waitFor();
+async function preview(page,archive) { await page.locator('#backup-input').setInputFiles(archive); await page.locator('#restore-dialog').waitFor({state:'visible'}); assert.equal(await page.locator('#restore-mode').inputValue(),'merge'); }
+async function choose(page,value='existing') { for (const select of await page.locator('#restore-conflicts select').all()) await select.selectOption(value); }
+const choice=(page,kind,file)=>page.locator(`#restore-conflicts select[data-kind="${kind}"][data-path="books/${file}"]`);
+async function confirm(page) { await page.locator('#restore-confirm').click(); await page.locator('#restore-dialog').waitFor({state:'hidden'}); await saved(page); }
+async function at(page,name,amount=120) {
+  await page.getByRole('heading',{name,exact:true}).evaluate((el,y)=>window.scrollTo({top:el.getBoundingClientRect().top+scrollY+y,behavior:'instant'}),amount);
+  await page.waitForTimeout(650); await saved(page); return page.getByRole('heading',{name,exact:true}).evaluate(el=>-el.getBoundingClientRect().top);
+}
+async function resumed(page,name,amount) {
+  try { await page.waitForFunction(({name,amount})=>{const h=[...document.querySelectorAll('#document h2')].find(el=>el.textContent===name);return h && Math.abs(h.getBoundingClientRect().top+amount)<8;},{name,amount}); }
+  catch(error) { await page.screenshot({path:path.join(output,'merge-failure.png')}); throw error; }
+  await saved(page);
+}
+async function rows(page) {
+  return page.evaluate(async()=>{
+    const r=indexedDB.open(`inkread-library:${new URL('./',location.href).href}`,1),db=await new Promise((resolve,reject)=>{r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});
+    const tx=db.transaction(['documents','assets','positions'],'readonly'),result={};
+    for(const name of ['documents','assets','positions']) { const request=tx.objectStore(name).getAll(); request.onsuccess=()=>{result[name]=request.result;}; }
+    await new Promise((resolve,reject)=>{tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error);});db.close();
+    result.assets=await Promise.all(result.assets.map(async a=>({path:a.path,text:await a.blob.text()}))); return result;
+  });
+}
+try {
+  browser=await chromium.launch(options);
+  sourceContext=await setup(await browser.newContext({viewport:{width:1440,height:900},acceptDownloads:true}));
+  const from=await sourceContext.newPage(); await from.goto(sourceURL); await from.locator('#offline-status[data-state=ready]').waitFor();
+  await from.locator('#folder-input').setInputFiles(backupFolder); await from.locator('#user-files button').filter({hasText:'shared.md'}).click();
+  await from.locator('.katex').waitFor(); await from.locator('.mermaid-container svg').waitFor(); const backupOffset=await at(from,'備份接續');
+  const download=from.waitForEvent('download'); await from.locator('#backup-library').click(); const archive=path.join(temporary,'backup.inkread'); await (await download).saveAs(archive);
+  targetContext=await setup(await chromium.launchPersistentContext(path.join(temporary,'profile'),{...options,viewport:{width:1440,height:900}}));
+  let page=await targetContext.newPage(); await page.goto(targetURL); await page.locator('#offline-status[data-state=ready]').waitFor();
+  await page.locator('#folder-input').setInputFiles(currentFolder); await page.locator('#user-files button').filter({hasText:'only-current.md'}).click();
+  const uniqueOffset=await at(page,'原有接續');
+  await page.locator('#user-files button').filter({hasText:'shared.md'}).click(); const currentOffset=await at(page,'目前接續');
+  let before=await rows(page); await targetContext.setOffline(true); await preview(page,archive);
+  assert.equal(await page.locator('#restore-conflicts select').count(),2); assert.equal(await page.locator('#restore-confirm').isDisabled(),true);
+  await page.locator('#restore-conflicts summary').first().click(); assert.equal(await page.locator('#restore-conflicts script').count(),0); assert.equal(await page.evaluate(()=>window.__mergePreviewAttack),undefined);
+  await choose(page); await page.screenshot({path:path.join(output,'merge-preview.png')});
+  await page.locator('#restore-cancel').click(); await saved(page);
+  assert.deepEqual((await rows(page)).documents,before.documents); assert.deepEqual((await rows(page)).assets,before.assets);
+  pass('Merge is the default; unresolved versions block confirmation and cancellation preserves destination data');
+
+  await preview(page,archive); await choose(page); await confirm(page); await resumed(page,'目前接續',currentOffset);
+  let after=await rows(page);
+  assert.equal(after.documents.length,3); assert.equal(after.assets.length,3);
+  assert.equal(after.documents.find(d=>d.path==='books/shared.md').revision,before.documents.find(d=>d.path==='books/shared.md').revision);
+  assert.equal(after.assets.find(a=>a.path==='books/picture.svg').text,image('green'));
+  assert.equal(after.documents.find(d=>d.path==='books/only-current.md').source,onlyCurrent);
+  await page.locator('#user-files button').filter({hasText:'only-current.md'}).click(); await resumed(page,'原有接續',uniqueOffset);
+  pass('Keeping current conflicts retains current text, image bytes and independent reading positions while adding new files');
+
+  await preview(page,archive); await choose(page);
+  await choice(page,'documents','shared.md').selectOption('backup'); await choice(page,'assets','picture.svg').selectOption('backup'); await confirm(page);
+  await page.locator('#user-files button').filter({hasText:'shared.md'}).click(); await resumed(page,'備份接續',backupOffset);
+  after=await rows(page); assert.equal(after.documents.find(d=>d.path==='books/shared.md').source,backupSource); assert.equal(after.assets.find(a=>a.path==='books/picture.svg').text,image('red'));
+  assert.equal(after.documents.find(d=>d.path==='books/only-current.md').source,onlyCurrent); assert.equal(after.assets.find(a=>a.path==='books/current.svg').text,image('blue'));
+  pass('Choosing backup conflicts restores that copy and its progress without replacing unrelated current files or images');
+
+  await preview(page,archive); await choose(page);
+  const other=await targetContext.newPage(); await other.goto(targetURL); await other.locator('#app:not([hidden])').waitFor();
+  await other.locator('#file-input').setInputFiles({name:'other-tab.md',mimeType:'text/markdown',buffer:Buffer.from('# 其他分頁的新文件')}); await saved(other);
+  await page.locator('#restore-confirm').click(); await page.locator('#restore-error').filter({hasText:'其他分頁已更新文件庫'}).waitFor();
+  assert.equal(await page.locator('#restore-confirm').isDisabled(),true); assert((await rows(page)).documents.some(d=>d.path==='other-tab.md'));
+  await choose(page); await confirm(page); assert.equal((await rows(page)).documents.length,4);
+  await other.close();
+  pass('Concurrent destination changes abort the merge and require fresh conflict choices without losing the other tab file');
+
+  await preview(page,archive); await choose(page,'backup'); before=await rows(page);
+  await page.evaluate(()=>{window.__mergeClear=IDBObjectStore.prototype.clear;IDBObjectStore.prototype.clear=function(...args){const r=window.__mergeClear.apply(this,args);if(this.name==='documents')this.transaction.abort();return r;};});
+  await page.locator('#restore-confirm').click(); await page.locator('#restore-error').filter({hasText:'原文件庫仍保留'}).waitFor();
+  assert.deepEqual((await rows(page)).documents,before.documents); assert.deepEqual((await rows(page)).assets,before.assets);
+  await page.evaluate(()=>{IDBObjectStore.prototype.clear=window.__mergeClear;}); await confirm(page);
+  pass('Failed merge transactions roll back all changes and can retry with the selected versions intact');
+
+  await page.locator('#user-files button').filter({hasText:'only-current.md'}).click(); await resumed(page,'原有接續',uniqueOffset); await saved(page);
+  await targetContext.close(); targetContext=undefined;
+  targetContext=await setup(await chromium.launchPersistentContext(path.join(temporary,'profile'),{...options,viewport:{width:1440,height:900}})); await targetContext.setOffline(true);
+  page=await targetContext.newPage(); await page.goto(targetURL+'?merged-restart=1'); await resumed(page,'原有接續',uniqueOffset);
+  assert.equal(await page.locator('#user-files button').count(),4); assert.equal(await page.locator('#document img[src^="blob:"]').evaluate(img=>img.complete && img.naturalWidth>0),true);
+  await page.locator('#user-files button').filter({hasText:'shared.md'}).click(); await resumed(page,'備份接續',backupOffset); await page.locator('.katex').waitFor(); await page.locator('.mermaid-container svg').waitFor();
+  pass('Offline browser restart preserves the merged library and both chosen and untouched reading positions');
+
+  await page.setViewportSize({width:390,height:844}); await page.locator('#sidebar-toggle').click(); await preview(page,archive);
+  await choose(page); await page.screenshot({path:path.join(output,'merge-mobile.png')});
+  await page.locator('#restore-mode').selectOption('replace'); assert.equal(await page.locator('#restore-conflicts select').count(),0); assert.equal(await page.locator('#restore-confirm').textContent(),'還原並取代文件庫');
+  await page.locator('#restore-mode').selectOption('merge'); assert.equal(await page.locator('#restore-confirm').isDisabled(),false);
+  await page.locator('#restore-cancel').click();
+  pass('Mobile conflict choices remain usable; switching modes preserves explicit choices and replacement is clearly labeled');
+
+  localContext=await setup(await browser.newContext({serviceWorkers:'block',viewport:{width:1440,height:900}})); await localContext.setOffline(true);
+  const local=await localContext.newPage(); await local.goto(pathToFileURL(path.join(root,'dist/index.html')).href); await local.locator('#app:not([hidden])').waitFor();
+  await local.locator('#folder-input').setInputFiles(currentFolder); await saved(local); await preview(local,archive); await choose(local); await confirm(local);
+  assert.equal(await local.locator('#user-files button').count(),3); assert.equal((await rows(local)).assets.find(a=>a.path==='books/picture.svg').text,image('green'));
+  pass('The file:// version merges the same backup completely offline while keeping existing conflicting images');
+
+  assert.deepEqual(errors,[]); await writeFile(path.join(output,'merge-results.json'),JSON.stringify({checks:results,total:results.length,uncaughtErrors:errors},null,2));
+  console.log(`\n${results.length} library merge checks passed.`);
+} finally {
+  await localContext?.close(); await sourceContext?.close(); await targetContext?.close(); await browser?.close(); await server.close();
+  if (!path.resolve(temporary).startsWith(output+path.sep)) throw new Error('Unsafe temporary path'); await rm(temporary,{recursive:true,force:true});
+}

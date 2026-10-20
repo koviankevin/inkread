@@ -36,7 +36,10 @@ async function setup(ctx) {
 async function saved(page) { await page.locator('#library-status[data-state=saved]').waitFor(); }
 async function open(page,name,content) { await page.locator('#file-input').setInputFiles({name,mimeType:'text/markdown',buffer:Buffer.from(content)}); }
 async function paste(page,name,content) {
-  await page.locator('#paste-button').click(); await page.locator('#paste-name').fill(name);
+  await page.locator('#paste-button').click();
+  await page.locator('#paste-name').focus(); await page.waitForTimeout(100);
+  assert.equal(await page.locator('#paste-name').evaluate(input=>document.activeElement===input),true,'Opening the dialog must not steal focus after the filename is selected');
+  await page.locator('#paste-name').fill(name);
   await page.locator('#paste-content').fill(content); await page.locator('#paste-submit').click(); await saved(page);
 }
 async function inspect(page) {
