@@ -126,10 +126,25 @@ try {
     await page.locator('#document .render-error').waitFor();
     assert.equal(await page.locator('#document [data-diagram-index]').count(),20);
     report.checks.push('Document diagram limit leaves readable source');
+    await page.locator('#library-status[data-state=saved]').waitFor();
+    // Exercise asynchronous storage completion even on fast local disks.
+    await page.evaluate(() => {
+      const descriptor = Object.getOwnPropertyDescriptor(IDBTransaction.prototype,'oncomplete');
+      Object.defineProperty(IDBTransaction.prototype,'oncomplete',{
+        ...descriptor,
+        set(handler) {
+          descriptor.set.call(this,handler && function(event) {
+            setTimeout(()=>handler.call(this,event),250);
+          });
+        },
+      });
+    });
     await page.locator('#clear-files').click();
+    await page.waitForFunction(()=>document.querySelectorAll('#user-files button').length === 0);
+    await page.locator('#library-status[data-state=saved]').waitFor();
     await page.locator('#file-input').setInputFiles(Array.from({length:201},(_,index)=>({name:`document-${index}.md`,mimeType:'text/markdown',buffer:Buffer.from('# 有界匯入')})));
     await page.waitForFunction(()=>document.querySelectorAll('#user-files button').length === 200);
-    report.checks.push('Bulk import stops at 200 documents');
+    report.checks.push('Bulk import after asynchronous clear stops at 200 documents');
   }
   assert.deepEqual(errors,[]);
   await writeFile(path.join(output,baseline?'audit-baseline.json':'audit-results.json'),JSON.stringify(report,null,2));
