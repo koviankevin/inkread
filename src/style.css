@@ -1,4 +1,4 @@
-@import 'katex/dist/katex.min.css';
+.pending-math{font-family:serif;overflow-wrap:anywhere}
 
 :root{color-scheme:light;--canvas:#fbfaf7;--sidebar:#f3f3ed;--paper:#fbfaf7;--text:#303832;--heading:#26382f;--muted:#8a9189;--secondary:#68736a;--line:#e4e7df;--accent:#237661;--accent-hover:#185a49;--accent-bg:#e4eee5;--surface:#fff;--soft:#f1f3ec;--table-stripe:#f3f5ef;--code:#f0f2eb;--shadow:0 20px 80px #253a3025;--reader-size:16px;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif;font-synthesis:none}
 :root[data-theme=dark]{color-scheme:dark;--canvas:#1b211e;--sidebar:#171d1a;--paper:#1b211e;--text:#ced7ce;--heading:#edf2e9;--muted:#839087;--secondary:#a1b0a4;--line:#313e34;--accent:#8ccdb0;--accent-hover:#b1e2ca;--accent-bg:#263c30;--surface:#232c25;--soft:#232d25;--table-stripe:#212b23;--code:#222c25;--shadow:0 20px 80px #0005}

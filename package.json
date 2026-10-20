@@ -1,14 +1,17 @@
 {
   "name": "inkread-markdown-viewer",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "license": "MIT",
-  "engines": {"node": ">=22.12.0"},
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "private": true,
   "type": "module",
   "description": "墨閱 — 可離線使用的 Markdown 網頁檢視器",
   "scripts": {
     "build": "node scripts/build.mjs",
-    "test": "node tests/verify.mjs && node tests/audit.mjs",
+    "test": "node tests/verify.mjs && node tests/audit.mjs && node tests/lazy-features.mjs",
+    "benchmark:startup": "node tests/startup.mjs",
     "dev": "python3 -m http.server 4173 --directory dist"
   },
   "dependencies": {
@@ -23,6 +26,7 @@
   },
   "devDependencies": {
     "esbuild": "^0.25.12",
-    "playwright-core": "^1.57.0"
+    "playwright-core": "^1.57.0",
+    "terser": "^5.51.2"
   }
 }

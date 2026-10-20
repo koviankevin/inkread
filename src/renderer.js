@@ -1,15 +1,23 @@
 import MarkdownIt from 'markdown-it';
 import taskLists from 'markdown-it-task-lists';
 import texmath from 'markdown-it-texmath';
-import katex from 'katex';
 import hljs from 'highlight.js/lib/common';
 import DOMPurify from 'dompurify';
 import { headingSlug } from './paths.js';
 import {MAX_DOCUMENT_BYTES, MAX_DIAGRAMS, MAX_HIGHLIGHT_CHARS, textBytes} from './limits.js';
+import {registerVendor} from './vendor-loader.js';
+
+registerVendor('sanitize',DOMPurify);
+let formulaEnvironment;
+const mathOptions = {throwOnError:false, strict:'ignore', trust:false, maxExpand:1000, maxSize:20};
+const deferredMath = {renderToString(source,options) {
+  const index = formulaEnvironment.formulas.push({source,options:{...options}}) - 1;
+  return `<span class="pending-math" data-math-index="${index}">${escapeHTML(source)}</span>`;
+}};
 
 const md = new MarkdownIt({html:false, linkify:true, typographer:true, breaks:false});
 md.use(taskLists, {enabled:false, label:false});
-md.use(texmath, {engine:katex, delimiters:'dollars', katexOptions:{throwOnError:false, strict:'ignore', trust:false, maxExpand:1000, maxSize:20}});
+md.use(texmath, {engine:deferredMath, delimiters:'dollars', katexOptions:mathOptions});
 export const escapeHTML = value => md.utils.escapeHtml(String(value));
 
 md.renderer.rules.heading_open = (tokens, index, options, env, self) => {
@@ -46,11 +54,15 @@ md.renderer.rules.table_close = () => '</table></div></div>\n';
 
 export function renderMarkdown(source) {
   if (source.length > MAX_DOCUMENT_BYTES || textBytes(source) > MAX_DOCUMENT_BYTES) throw new Error('Document exceeds 2 MiB');
-  const env = {images:[], diagrams:[], slugs:new Map()};
-  const raw = md.render(source, env);
+  const env = {images:[], diagrams:[], formulas:[], slugs:new Map()};
+  let raw;
+  formulaEnvironment = env;
+  try { raw = md.render(source, env); } finally { formulaEnvironment = undefined; }
   const html = DOMPurify.sanitize(raw, {ADD_ATTR:['target'], FORBID_TAGS:['style','iframe','object','embed','form'], FORBID_ATTR:['srcdoc']});
-  return {html, images:env.images, diagrams:env.diagrams};
+  return {html, images:env.images, diagrams:env.diagrams, formulas:env.formulas};
 }
+
+export function sanitizeFormula(html) { return DOMPurify.sanitize(html); }
 
 export function sanitizeDiagram(svg) {
   const fragment = DOMPurify.sanitize(svg, {RETURN_DOM_FRAGMENT:true, USE_PROFILES:{html:true, svg:true, svgFilters:true}, ADD_TAGS:['style','foreignObject'], ADD_ATTR:['xmlns'], FORBID_TAGS:['script','image','a','iframe','use','img','input','form','video','audio'], FORBID_ATTR:['href','xlink:href','src','srcdoc']});

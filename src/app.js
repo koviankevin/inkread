@@ -1,7 +1,7 @@
 import './style.css';
-import mermaid from 'mermaid';
 import {createIcons, Plus, Search, X, FolderOpen, ShieldCheck, CircleHelp, PanelLeft, ChevronRight, Minus, Moon, Sun, Printer, List, FileText, FileUp, BookOpen, ArrowUp, Copy, Check, Sparkles, ImageOff, ArrowLeftRight, FileCode2, ChartNoAxesCombined} from 'lucide';
-import {renderMarkdown, sanitizeDiagram, safeDiagramSource} from './renderer.js';
+import {renderMarkdown, sanitizeDiagram, safeDiagramSource, sanitizeFormula} from './renderer.js';
+import {loadVendor} from './vendor-loader.js';
 import {normalizePath, resolvePath, isMarkdown, imageKind} from './paths.js';
 import {MAX_DOCUMENT_BYTES, MAX_DOCUMENTS, MAX_TEXT_BYTES, MAX_IMAGE_BYTES, MAX_ASSET_BYTES, MAX_IMPORT_FILES, textBytes} from './limits.js';
 import introduction from '../samples/開始閱讀.md';
@@ -27,6 +27,8 @@ let remoteAllowed = false;
 let currentImages = [];
 let renderVersion = 0;
 let activeRender = Promise.resolve();
+let featureObservers = [];
+let renderAllFeatures = () => Promise.resolve();
 let activeHeadings = [];
 let headingPositions = [];
 let tocLinks = [];
@@ -52,7 +54,7 @@ function toast(message) {
   toastTimer = setTimeout(() => { $('toast').hidden = true; }, 3800);
 }
 
-function configureMermaid() {
+function configureMermaid(mermaid) {
   const dark = document.documentElement.dataset.theme === 'dark';
   mermaid.initialize({startOnLoad:false, htmlLabels:false, securityLevel:'strict', suppressErrorRendering:true, theme:'base', fontFamily:'"Segoe UI", "Microsoft JhengHei", sans-serif', maxTextSize:50000, maxEdges:500, themeVariables:{primaryColor:dark ? '#2f4b38' : '#e4eee2', primaryTextColor:dark ? '#e4eee2' : '#294436', primaryBorderColor:dark ? '#73947c' : '#9fb69c', lineColor:dark ? '#88a894' : '#6b8a75', secondaryColor:dark ? '#263e32' : '#f3f5ed', tertiaryColor:dark ? '#25372a' : '#eef1e7', background:dark ? '#232d25' : '#f1f3ec', mainBkg:dark ? '#2f4b38' : '#e4eee2', nodeBorder:dark ? '#73947c' : '#9fb69c', textColor:dark ? '#e4eee2' : '#294436', actorTextColor:dark ? '#e4eee2' : '#294436', actorBkg:dark ? '#2f4b38' : '#e4eee2', actorBorder:dark ? '#73947c' : '#9fb69c', signalColor:dark ? '#ced7ce' : '#294436', signalTextColor:dark ? '#ced7ce' : '#294436', noteBkgColor:dark ? '#33402d' : '#edf0df', noteTextColor:dark ? '#e4eee2' : '#294436', noteBorderColor:dark ? '#73947c' : '#9fb69c', fontSize:'14px'}, flowchart:{htmlLabels:false, useMaxWidth:true}, sequence:{useMaxWidth:true}});
 }
@@ -64,7 +66,6 @@ function setTheme(theme, rerender = true) {
   const label = theme === 'dark' ? '切換淺色模式' : '切換深色模式';
   $('theme-toggle').title = label;
   $('theme-toggle').setAttribute('aria-label',label);
-  configureMermaid();
   if (rerender) showDocument(current, {preserveScroll:true});
   refreshIcons();
 }
@@ -260,6 +261,14 @@ function updateProgress() {
 }
 
 async function renderDiagrams(diagrams, version) {
+  if (!diagrams.length || version !== renderVersion) return;
+  let mermaid;
+  try {
+    // Mermaid may decode math delimiters from entities; share a ready KaTeX instance.
+    [mermaid] = await Promise.all([loadVendor('diagrams'),loadVendor('math')]);
+    if (version !== renderVersion) return;
+    configureMermaid(mermaid);
+  } catch { mermaid = undefined; /* Each diagram retains its source if feature files are missing. */ }
   for (let index = 0; index < diagrams.length; index++) {
     if (version !== renderVersion) return;
     const container = $('document').querySelector(`[data-diagram-index="${index}"]`);
@@ -282,6 +291,52 @@ async function renderDiagrams(diagrams, version) {
     }
   }
   if (version === renderVersion) updateProgress();
+}
+
+async function renderFormulas(formulas,version) {
+  if (!formulas.length || version !== renderVersion) return;
+  let katex;
+  try { katex = await loadVendor('math'); } catch { /* Retain readable source. */ }
+  if (version !== renderVersion) return;
+  for (const slot of $('document').querySelectorAll('[data-math-index]')) {
+    const formula = formulas[Number(slot.dataset.mathIndex)];
+    if (!formula) continue;
+    try {
+      slot.innerHTML = sanitizeFormula(katex.renderToString(formula.source,formula.options));
+      slot.classList.remove('pending-math');
+    } catch {
+      slot.textContent = formula.source;
+      slot.title = '公式無法繪製，已保留原始內容。';
+    }
+    delete slot.dataset.mathIndex;
+  }
+  scheduleProgress();
+}
+
+function prepareFeatures(rendered,version) {
+  featureObservers.forEach(observer=>observer.disconnect());
+  featureObservers = [];
+  let diagramTask, formulaTask;
+  const startDiagrams = () => {
+    if (!diagramTask) {
+      // Mermaid has shared state, so keep renders serialized across documents.
+      diagramTask = activeRender = activeRender.catch(()=>{}).then(()=>renderDiagrams(rendered.diagrams,version));
+    }
+    return diagramTask;
+  };
+  const startFormulas = () => formulaTask ??= renderFormulas(rendered.formulas || [],version);
+  const watch = (selector,start) => {
+    const targets = $('document').querySelectorAll(selector);
+    if (!targets.length) return;
+    const observer = new IntersectionObserver(entries => {
+      if (entries.some(entry=>entry.isIntersecting)) { observer.disconnect(); start(); }
+    },{rootMargin:'300px 0px'});
+    targets.forEach(target=>observer.observe(target));
+    featureObservers.push(observer);
+  };
+  renderAllFeatures = () => Promise.all([startDiagrams(),startFormulas()]);
+  watch('[data-diagram-index]',startDiagrams);
+  watch('[data-math-index]',startFormulas);
 }
 
 function showDocument(doc, {preserveScroll = false, anchor = ''} = {}) {
@@ -315,13 +370,8 @@ function showDocument(doc, {preserveScroll = false, anchor = ''} = {}) {
   if (!preserveScroll) window.scrollTo({top:0,behavior:'instant'});
   else window.scrollTo({top:scrollPosition,behavior:'instant'});
   refreshIcons();
-  // Serialize Mermaid work; an older render cannot overwrite the newly selected document.
-  activeRender = activeRender.catch(() => {}).then(() => renderDiagrams(rendered.diagrams,version));
-  activeRender.then(() => {
-    if (version !== renderVersion) return;
-    if (anchor) jumpToAnchor(anchor);
-    updateProgress();
-  });
+  prepareFeatures(rendered,version);
+  if (anchor) renderAllFeatures().then(() => { if (version === renderVersion) jumpToAnchor(anchor); });
   updateProgress();
 }
 
@@ -481,7 +531,7 @@ $('font-minus').addEventListener('click', () => setFont(fontSize - 1));
 $('font-plus').addEventListener('click', () => setFont(fontSize + 1));
 $('print-button').addEventListener('click', async () => {
   $('print-button').disabled = true;
-  await activeRender;
+  await renderAllFeatures();
   const images = [...$('document').querySelectorAll('img')];
   images.forEach(img => { img.loading = 'eager'; });
   await Promise.race([Promise.allSettled(images.map(img => img.decode())),new Promise(resolve => setTimeout(resolve,5000))]);

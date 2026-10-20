@@ -2,12 +2,43 @@ import {build} from 'esbuild';
 import {mkdir, rm, copyFile, cp, readFile, writeFile, readdir} from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {minify} from 'terser';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const out = path.join(root,'dist');
 await rm(out,{recursive:true,force:true});
 await mkdir(out,{recursive:true});
-const result = await build({absWorkingDir:root, metafile:true, entryPoints:[path.join(root,'src/app.js')], outfile:path.join(out,'app.js'), bundle:true, format:'iife', platform:'browser', target:['chrome110','edge110'], minify:true, legalComments:'linked', loader:{'.md':'text','.svg':'text','.woff2':'file','.woff':'file','.ttf':'file'}, assetNames:'fonts/[name]-[hash]', logLevel:'info'});
+const shared = {absWorkingDir:root, metafile:true, bundle:true, format:'iife', platform:'browser', target:['chrome110','edge110'], minify:true, legalComments:'linked', loader:{'.md':'text','.svg':'text','.woff2':'file','.woff':'file','.ttf':'file'}, assetNames:'fonts/[name]-[hash]', logLevel:'info'};
+const sharedModules = {
+  name:'shared-offline-engines',
+  setup(builder) {
+    builder.onResolve({filter:/^(katex|dompurify)$/},args=>({path:args.path,namespace:'shared-engine'}));
+    builder.onLoad({filter:/.*/,namespace:'shared-engine'},args=>({contents:`import {getLoadedVendor} from ${JSON.stringify(path.join(root,'src/vendor-loader.js'))}; export default ${args.path === 'katex' ? '{renderToString(...args){return getLoadedVendor("math").renderToString(...args)}}' : 'getLoadedVendor("sanitize")'};`,loader:'js',resolveDir:root}));
+    builder.onResolve({filter:/^elkjs\/lib\/elk\.bundled\.js$/},()=>({path:path.join(root,'src/lazy-elk.js')}));
+  }
+};
+const deferredTexmath = {
+  name:'deferred-texmath-engine',
+  setup(builder) {
+    // markdown-it-texmath's unused CommonJS fallback must not pull KaTeX into app.js.
+    builder.onResolve({filter:/^katex$/},()=>({path:'deferred-katex',namespace:'unused-math-fallback'}));
+    builder.onLoad({filter:/.*/,namespace:'unused-math-fallback'},()=>({contents:'export default {};',loader:'js'}));
+  }
+};
+const results = [];
+for (const [entry,filename,plugins] of [
+  ['app','app', [deferredTexmath]],
+  ['math-engine','math', []],
+  ['diagram-engine','diagrams',[sharedModules]],
+  ['elk-engine','elk',[]],
+]) results.push(await build({...shared,entryPoints:[path.join(root,`src/${entry}.js`)],outfile:path.join(out,`${filename}.js`),plugins}));
+// The large optional engines are already minified; focus extra compression on the reader.
+for (const file of ['app.js','math.js']) {
+  const source = await readFile(path.join(out,file),'utf8');
+  const compressed = await minify(source,{compress:{passes:2},mangle:true,format:{comments:/^!|@license|@preserve/}});
+  if (!compressed.code) throw new Error(`Empty minified bundle: ${file}`);
+  await writeFile(path.join(out,file),compressed.code + '\n');
+}
 await copyFile(path.join(root,'src/index.html'),path.join(out,'index.html'));
 await copyFile(path.join(root,'src/favicon.svg'),path.join(out,'favicon.svg'));
 await cp(path.join(root,'samples'),path.join(out,'samples'),{recursive:true});
@@ -16,7 +47,8 @@ await writeFile(path.join(out,'.nojekyll'),'');
 let notices = '墨閱 Inkread — Third-party notices\n\n';
 const modules = path.join(root,'node_modules');
 const packageFolders = new Set();
-for (const input of Object.keys(result.metafile.inputs)) {
+for (const input of results.flatMap(result=>Object.keys(result.metafile.inputs))) {
+  if (input.startsWith('shared-engine:') || input.startsWith('unused-math-fallback:')) continue;
   const relative = path.relative(modules,path.resolve(root,input));
   if (relative.startsWith('..') || path.isAbsolute(relative)) continue;
   const parts = relative.split(path.sep);
@@ -42,4 +74,12 @@ await copyFile(path.join(root,'交接文件.md'),path.join(out,'交接文件.md'
 await copyFile(path.join(root,'LICENSE'),path.join(out,'LICENSE'));
 await mkdir(path.join(root,'test-results'),{recursive:true});
 await writeFile(path.join(root,'test-results','bundle-packages.json'),JSON.stringify([...packageFolders].map(folder=>path.relative(root,folder)),null,2));
+await writeFile(path.join(root,'test-results','bundle-metafiles.json'),JSON.stringify(results.map(result=>result.metafile)));
+const {gzipSync,brotliCompressSync} = await import('node:zlib');
+const bundles = await Promise.all(['app.js','math.js','diagrams.js','elk.js'].map(async file=>{
+  const bytes = await readFile(path.join(out,file));
+  return {file,bytes:bytes.length,gzipBytes:gzipSync(bytes).length,brotliBytes:brotliCompressSync(bytes).length};
+}));
+await writeFile(path.join(root,'test-results','bundle-sizes.json'),JSON.stringify(bundles,null,2));
+console.log(JSON.stringify(bundles,null,2));
 console.log('Offline distribution ready: dist/index.html');

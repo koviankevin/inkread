@@ -57,7 +57,10 @@ try {
   page.on('request',recordRequest);
   await page.goto(`${base}/internal/inkread/`);
   await page.locator('#app:not([hidden])').waitFor();
+  await page.locator('.mermaid-container').first().scrollIntoViewIfNeeded();
   await page.locator('.mermaid-container svg').first().waitFor({timeout:30000});
+  await page.locator('[data-math-index], .katex').first().scrollIntoViewIfNeeded();
+  await page.locator('.katex').first().waitFor();
   assert.equal(await page.locator('.katex').count() > 0,true);
   assert.equal(await page.locator('.mermaid-container svg .node').count() > 0,true);
   assert.equal(await page.locator('.mermaid-container svg text').count() > 0,true);
@@ -166,7 +169,10 @@ try {
   localPage.on('request',recordRequest);
   await localPage.goto(pathToFileURL(path.join(root,'dist','index.html')).href);
   await localPage.locator('#app:not([hidden])').waitFor();
+  await localPage.locator('.mermaid-container').first().scrollIntoViewIfNeeded();
   await localPage.locator('.mermaid-container svg').first().waitFor({timeout:30000});
+  await localPage.locator('[data-math-index], .katex').first().scrollIntoViewIfNeeded();
+  await localPage.locator('.katex').first().waitFor();
   assert.equal((await localPage.locator('.mermaid-container svg').first().textContent()).includes('開啟文件'),true);
   assert.equal(await localPage.locator('.katex').count() > 0,true);
   assert.equal(await localPage.evaluate(async () => {
