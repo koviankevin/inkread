@@ -51,7 +51,16 @@ npm run dev
 CHROMIUM_PATH=/usr/bin/chromium npm test
 ```
 
-測試包含內網子目錄部署、載入後斷網閱讀、圖表公式、資料夾圖片與連結、寬表、深色模式、列印、貼上與惡意內容。測試結果與截圖存入 `test-results/`。此次測試環境的瀏覽器政策禁止開啟 `file://`，因此未能實測雙擊本機 HTML；成品採無模組載入的本機相容架構，供使用者下載驗證。
+十組測試包含內網子目錄部署、載入後斷網閱讀、圖表公式、資料夾圖片與連結、寬表、深色模式、列印、貼上與惡意內容，以及 Windows 以 `file://` 離線開啟、公式字型與本機圖片。測試結果與截圖存入 `test-results/`。實際公司瀏覽器政策仍需另外驗收。
+
+Windows 可指定測試瀏覽器後執行：
+
+```powershell
+$env:CHROMIUM_PATH = 'C:\Program Files\Google\Chrome\Application\chrome.exe'
+npm test
+```
+
+若本機端點防護軟體向頁面注入腳本，測試仍會封鎖外部請求。經確認的注入主機可用 `INKREAD_TEST_INJECTED_HOSTS` 另列於報告的 `blockedInjectedRequests`；預設不設定任何例外。詳細環境與本次驗收結果見 `交接文件.md`。
 
 ## GitHub Pages
 
