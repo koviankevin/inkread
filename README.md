@@ -4,6 +4,8 @@
 
 ## 直接使用
 
+[開啟線上墨閱](https://koviankevin.github.io/inkread/) · [下載離線網站 ZIP](https://koviankevin.github.io/inkread/inkread-offline.zip) · [GitHub 原始碼](https://github.com/koviankevin/inkread)
+
 下載並解壓縮 **inkread-offline.zip**，雙擊 `index.html` 即可使用。不需要 Node.js、帳號或網際網路。也可以把解壓縮後的所有檔案放到內網靜態網頁伺服器；請保留目錄結構，並確保 `.js`、`.css`、`.woff2` 字型可被讀取。
 
 - **開啟文件**：拖曳或選取 `.md`、`.markdown`、`.txt`。可一次開啟多份文件。
