@@ -1,4 +1,5 @@
 import {normalizePath,isMarkdown} from './paths.js';
+import {documentLinks} from './document-links.js';
 import {MAX_DOCUMENTS,MAX_DOCUMENT_BYTES,MAX_TEXT_BYTES,MAX_IMAGE_BYTES,MAX_ASSET_BYTES,MAX_IMPORT_FILES} from './limits.js';
 
 const MAGIC=new Uint8Array([73,78,75,82,69,65,68,0]); // INKREAD followed by NUL.
@@ -26,7 +27,7 @@ export async function encodeBackup(snapshot) {
     if (!validPath(doc.path) || !isMarkdown(doc.path) || seen.has(doc.path) || blob.size>MAX_DOCUMENT_BYTES) invalid();
     seen.add(doc.path); textTotal+=blob.size;
     if (textTotal>MAX_TEXT_BYTES) invalid();
-    documents.push({path:doc.path,size:blob.size,sha256:hex(await digest(blob)),pasted:doc.pasted===true});
+    documents.push({path:doc.path,size:blob.size,sha256:hex(await digest(blob)),pasted:doc.pasted===true,...documentLinks(doc)});
     chunks.push(blob);
   }
   for (const asset of snapshot.assets) {
@@ -37,7 +38,8 @@ export async function encodeBackup(snapshot) {
     chunks.push(asset.blob);
   }
   const paths=new Set(documents.map(doc=>doc.path));
-  const manifest=new Blob([JSON.stringify({format:'inkread-library',version:1,createdAt:new Date().toISOString(),documents,assets,positions:snapshot.positions.map(row=>positionFor(row,paths)),current:paths.has(snapshot.current) ? snapshot.current : null})]);
+  const version=documents.some(doc=>doc.linkBase!==undefined) ? 2 : 1;
+  const manifest=new Blob([JSON.stringify({format:'inkread-library',version,createdAt:new Date().toISOString(),documents,assets,positions:snapshot.positions.map(row=>positionFor(row,paths)),current:paths.has(snapshot.current) ? snapshot.current : null})]);
   if (manifest.size>MAX_MANIFEST) invalid();
   const header=new Uint8Array(HEADER);
   header.set(MAGIC); new DataView(header.buffer).setUint32(8,manifest.size,true); header.set(await digest(manifest),12);
@@ -56,7 +58,7 @@ export async function decodeBackup(file) {
   if (!(await digest(manifestBlob)).every((byte,index)=>header[index+12]===byte)) invalid();
   let manifest;
   try { manifest=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(await manifestBlob.arrayBuffer())); } catch { invalid(); }
-  if (!manifest || manifest.format!=='inkread-library' || manifest.version!==1 || typeof manifest.createdAt!=='string' || !Number.isFinite(Date.parse(manifest.createdAt)) || !Array.isArray(manifest.documents) || manifest.documents.length>MAX_DOCUMENTS || !Array.isArray(manifest.assets) || manifest.assets.length>MAX_IMPORT_FILES || !Array.isArray(manifest.positions) || manifest.positions.length>MAX_DOCUMENTS) invalid();
+  if (!manifest || manifest.format!=='inkread-library' || ![1,2].includes(manifest.version) || typeof manifest.createdAt!=='string' || !Number.isFinite(Date.parse(manifest.createdAt)) || !Array.isArray(manifest.documents) || manifest.documents.length>MAX_DOCUMENTS || !Array.isArray(manifest.assets) || manifest.assets.length>MAX_IMPORT_FILES || !Array.isArray(manifest.positions) || manifest.positions.length>MAX_DOCUMENTS) invalid();
   const paths=new Set(),docPaths=new Set();
   let offset=HEADER+length,textTotal=0,assetTotal=0;
   const entries=[];
@@ -85,7 +87,8 @@ export async function decodeBackup(file) {
     else {
       let source;
       try { source=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(await blob.arrayBuffer()); } catch { invalid(); }
-      documents.push({path:row.path,source,bytes:row.size,pasted:row.pasted});
+      if (manifest.version===1 && (row.linkBase!==undefined || row.linkTargets!==undefined)) invalid();
+      documents.push({path:row.path,source,bytes:row.size,pasted:row.pasted,...documentLinks(row)});
     }
   }
   return {documents,assets,positions,current:manifest.current,createdAt:manifest.createdAt};

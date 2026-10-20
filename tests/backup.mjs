@@ -31,12 +31,12 @@ async function rewrite(change) {
   return new Blob([header,body,bytes.slice(44+length)]);
 }
 const broken=new Uint8Array(await encoded.arrayBuffer()); broken[broken.length-1]^=1;
-for (const blob of [new Blob([broken]),encoded.slice(0,encoded.size-1),new Blob([encoded,'trailing']),await rewrite(m=>m.version=2),await rewrite(m=>m.documents[0].size=2*1024*1024+1)]) await assert.rejects(()=>decodeBackup(blob));
+for (const blob of [new Blob([broken]),encoded.slice(0,encoded.size-1),new Blob([encoded,'trailing']),await rewrite(m=>m.version=3),await rewrite(m=>m.documents[0].size=2*1024*1024+1)]) await assert.rejects(()=>decodeBackup(blob));
 const badHeader=new Uint8Array(44); badHeader.set([73,78,75,82,69,65,68,0]); new DataView(badHeader.buffer).setUint32(8,0xffffffff,true);
 await assert.rejects(()=>decodeBackup(new Blob([badHeader])));
 assert(MAX_BACKUP_BYTES<123*1024*1024);
 pass('Corrupt, truncated, trailing, unsupported and oversized backups fail before restoration');
-for (const change of [m=>m.documents[0].path='../../escape.md',m=>m.documents[0].path='範例/開始閱讀.md',m=>m.documents.push({...m.documents[0]}),m=>m.positions[0].ratio=2,m=>m.positions.push({...m.positions[0]}),m=>m.assets[0].path='payload.html',m=>m.assets[0].path='payload.constructor',m=>m.current='unknown.md']) await assert.rejects(async()=>decodeBackup(await rewrite(change)));
+for (const change of [m=>m.documents[0].path='../../escape.md',m=>m.documents[0].path='範例/開始閱讀.md',m=>m.documents.push({...m.documents[0]}),m=>m.positions[0].ratio=2,m=>m.positions.push({...m.positions[0]}),m=>m.assets[0].path='payload.html',m=>m.assets[0].path='payload.constructor',m=>m.current='unknown.md',m=>Object.assign(m.documents[0],{linkBase:'safe.md',linkTargets:[]}),m=>{m.version=2;Object.assign(m.documents[0],{linkBase:'safe.md',linkTargets:[['image.svg','../../escape.svg']]});},m=>{m.version=2;Object.assign(m.documents[0],{linkBase:'safe.md',linkTargets:[['image.svg','one.svg'],['image.svg','two.svg']]});}]) await assert.rejects(async()=>decodeBackup(await rewrite(change)));
 pass('Untrusted manifests reject unsafe paths, duplicate entries, invalid progress and non-image assets');
 
 const fixture=path.join(temporary,'books'); await mkdir(path.join(fixture,'assets'),{recursive:true});

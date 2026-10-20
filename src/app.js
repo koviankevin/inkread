@@ -6,7 +6,8 @@ import {prepareOffline} from './offline.js';
 import {createLibraryStore,newRevision} from './library-store.js';
 import {encodeBackup,decodeBackup} from './library-backup.js';
 import {storedLibrarySnapshot,restoreConflicts,planRestore} from './library-restore.js';
-import {normalizePath, resolvePath, isMarkdown, imageKind} from './paths.js';
+import {normalizePath, isMarkdown, imageKind} from './paths.js';
+import {documentLinks,resolveDocumentPath} from './document-links.js';
 import {MAX_DOCUMENT_BYTES, MAX_DOCUMENTS, MAX_TEXT_BYTES, MAX_IMAGE_BYTES, MAX_ASSET_BYTES, MAX_IMPORT_FILES, textBytes} from './limits.js';
 import introduction from '../samples/開始閱讀.md';
 import charts from '../samples/圖表與公式.md';
@@ -137,7 +138,7 @@ async function hydrateLibrary(resume) {
     if (!path || path.startsWith('範例/') || !isMarkdown(path) || typeof row.source!=='string' || row.source.length>MAX_DOCUMENT_BYTES || documents.has(path)) continue;
     const bytes=textBytes(row.source);
     if (!canStoreDocument({path},bytes)) continue;
-    documents.set(path,{path,source:row.source,bytes,name:path.split('/').pop(),revision:typeof row.revision==='string' ? row.revision : newRevision(),pasted:row.pasted===true});
+    documents.set(path,{path,source:row.source,bytes,name:path.split('/').pop(),revision:typeof row.revision==='string' ? row.revision : newRevision(),pasted:row.pasted===true,...documentLinks(row)});
     const pasted=/^貼上\/(\d+)\//.exec(path);
     if (pasted && Number(pasted[1])<=1e9) pasteCounter=Math.max(pasteCounter,Number(pasted[1]));
   }
@@ -240,7 +241,7 @@ function renderRestoreOptions() {
     const label=document.createElement('label'); label.textContent=`${conflict.kind==='documents' ? '文件' : '圖片'}：${conflict.path}`;
     const select=document.createElement('select'); select.className='text-input'; select.dataset.kind=conflict.kind; select.dataset.path=conflict.path;
     select.setAttribute('aria-label',`保留版本：${conflict.path}`);
-    for (const [value,text] of [['','請選擇要保留的版本'],['existing',`目前版本（${restoreVersionLabel(conflict,conflict.existing,restoreBase.positions)}）`],['backup',`備份版本（${restoreVersionLabel(conflict,conflict.incoming,restoreSnapshot.positions)}）`]]) {
+    for (const [value,text] of [['','請選擇要保留的版本'],['existing',`目前版本（${restoreVersionLabel(conflict,conflict.existing,restoreBase.positions)}）`],['backup',`備份版本（${restoreVersionLabel(conflict,conflict.incoming,restoreSnapshot.positions)}）`],['both','保留兩份（自動重新命名備份版本）']]) {
       const option=document.createElement('option'); option.value=value; option.textContent=text; select.append(option);
     }
     select.value=restoreChoices.get(conflict.key) || '';
@@ -265,12 +266,16 @@ function renderRestoreOptions() {
 }
 function updateRestorePreview() {
   const mode=$('restore-mode').value,merge=mode==='merge';
-  $('restore-warning').textContent=merge ? `保留目前 ${restoreBase.documents.length} 份文件與 ${restoreBase.assets.length} 張圖片，加入不重複的備份內容。以完整路徑判斷同名衝突，文件選哪一份就保留那份閱讀進度；同路徑圖片另行選擇。` : `將取代目前 ${restoreBase.documents.length} 份文件、${restoreBase.assets.length} 張圖片與閱讀進度。請先備份目前文件庫；硬碟上的原始文件不受影響。`;
+  const isolateImages=merge && restoreConflicts(restoreBase,restoreSnapshot).some(row=>row.kind==='documents' && restoreChoices.get(row.key)==='both');
+  for (const select of $('restore-conflicts').querySelectorAll('select[data-kind="assets"]')) {
+    select.disabled=isolateImages; select.value=isolateImages ? 'both' : restoreChoices.get(`assets:${select.dataset.path}`) || '';
+  }
+  $('restore-warning').textContent=merge ? `保留目前 ${restoreBase.documents.length} 份文件與 ${restoreBase.assets.length} 張圖片，加入不重複的備份內容。以完整路徑判斷同名衝突，各版本保留自己的閱讀進度。選擇「保留兩份」文件時，同路徑圖片也會自動保留兩份，維持各自的圖片連結。` : `將取代目前 ${restoreBase.documents.length} 份文件、${restoreBase.assets.length} 張圖片與閱讀進度。請先備份目前文件庫；硬碟上的原始文件不受影響。`;
   $('restore-confirm').textContent=merge ? '合併文件庫' : '還原並取代文件庫';
   $('restore-error').textContent=''; $('restore-confirm').disabled=false;
   try {
     const plan=planRestore(restoreBase,restoreSnapshot,mode,restoreChoices);
-    $('restore-result').textContent=`完成後：${plan.documents.length} 份文件、${plan.assets.length} 張圖片、${plan.positions.length} 份閱讀進度。`;
+    $('restore-result').textContent=`完成後：${plan.documents.length} 份文件、${plan.assets.length} 張圖片、${plan.positions.length} 份閱讀進度。`+(plan.renamed.length ? '\n自動重新命名：\n'+plan.renamed.map(row=>`${row.from} → ${row.to}`).join('\n') : '');
   } catch(error) {
     $('restore-result').textContent=error.message; $('restore-confirm').disabled=true;
   }
@@ -446,7 +451,7 @@ function renderImages(entries) {
     } else if (kind === 'blocked') {
       replacement = imagePlaceholder(entry,'此圖片使用不支援的網址格式。');
     } else if (kind === 'local') {
-      const path = resolvePath(current.path,entry.src);
+      const path = resolveDocumentPath(current,entry.src);
       src = path && assets.get(path);
       if (!src) replacement = imagePlaceholder(entry,'找不到本機圖片。請匯入包含文件與圖片的共同上層資料夾。');
     } else src = kind === 'remote' && entry.src.startsWith('//') ? `https:${entry.src}` : entry.src;
@@ -908,7 +913,7 @@ $('document').addEventListener('click', async e => {
   e.preventDefault();
   if (href.startsWith('#')) { jumpToAnchor(href); return; }
   if (href.startsWith('//')) { window.open(`https:${href}`,'_blank','noopener,noreferrer'); return; }
-  const path = resolvePath(current.path,href);
+  const path = resolveDocumentPath(current,href);
   const doc = path && documents.get(path);
   if (doc) showDocument(doc,{anchor:href.includes('#') ? href.slice(href.indexOf('#')) : ''});
   else toast('找不到連結的文件，請匯入包含相關文件的共同上層資料夾。');
