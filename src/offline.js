@@ -29,7 +29,7 @@ export function prepareOffline() {
         const result = await ask(worker,'OFFLINE_STATUS');
         ready = result?.ready === true;
         if (ready) {
-          show(registration?.waiting ? '可離線使用 · 更新已備妥' : '可離線使用（含圖表與公式）','ready',registration?.waiting ? '關閉所有墨閱分頁後再開啟，即會使用新版。' : '可斷網重新開啟此網址；文件內容不會儲存。');
+          show(registration?.waiting ? '可離線使用 · 更新已備妥' : '可離線使用（含圖表與公式）','ready',registration?.waiting ? '關閉所有墨閱分頁後再開啟，即會使用新版。' : '可斷網重新開啟此網址；文件與進度的保存狀態另列於旁邊。');
           return;
         }
       } catch { ready = false; }

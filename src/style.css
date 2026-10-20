@@ -18,3 +18,5 @@
 
 @media(max-width:720px){.offline-state{padding:6px 16px;font-size:9px}}
 @media print{.offline-state{display:none!important}}
+
+.offline-state{flex-wrap:wrap}.library-state{display:inline-flex;align-items:center;gap:6px;padding-left:8px;border-left:1px solid var(--line)}.library-state [data-state=error]{color:var(--heading)}

@@ -99,7 +99,7 @@ try {
     const requests=(await Promise.all(names.map(async name=>(await caches.open(name)).keys()))).flat();
     return requests.every(request=>request.method==='GET' && request.url.startsWith(location.origin+'/current/')) && !requests.some(request=>request.url.includes('private-test'));
   }),true);
-  pass('Only allowlisted app resources are cached; unknown routes and imported documents are not stored');
+  pass('Only allowlisted app resources enter the worker cache; documents use separate browser storage');
   await context.close(); context=undefined;
 
   unavailable=false; brokenMath=true;

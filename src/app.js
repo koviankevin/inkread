@@ -3,6 +3,7 @@ import {createIcons, Plus, Search, X, FolderOpen, ShieldCheck, CircleHelp, Panel
 import {renderMarkdown, sanitizeDiagram, safeDiagramSource, sanitizeFormula} from './renderer.js';
 import {loadVendor} from './vendor-loader.js';
 import {prepareOffline} from './offline.js';
+import {createLibraryStore,newRevision} from './library-store.js';
 import {normalizePath, resolvePath, isMarkdown, imageKind} from './paths.js';
 import {MAX_DOCUMENT_BYTES, MAX_DOCUMENTS, MAX_TEXT_BYTES, MAX_IMAGE_BYTES, MAX_ASSET_BYTES, MAX_IMPORT_FILES, textBytes} from './limits.js';
 import introduction from '../samples/開始閱讀.md';
@@ -21,6 +22,9 @@ const demoDocs = [
 const documents = new Map(demoDocs.map(doc => [doc.path,doc]));
 const assets = new Map();
 const assetSizes = new Map();
+const assetBlobs = new Map();
+const readingPositions = new Map();
+const dirtyDocuments = new Map(), dirtyAssets = new Map(), dirtyPositions = new Map();
 const sampleBlob = URL.createObjectURL(new Blob([sampleImage], {type:'image/svg+xml'}));
 assets.set('範例/assets/reading-flow.svg', sampleBlob);
 let current = demoDocs[0];
@@ -40,6 +44,154 @@ let fontSize = 16;
 let toastTimer;
 let dragDepth = 0;
 let pasteCounter = 0;
+let displayedDocument;
+const printMedia=matchMedia('print');
+let libraryLoading = true, libraryReady = false, libraryGeneration = 0;
+let saveTimer, savePromise, pendingSelection, storageError, clearFailed = false, clearing = false, resumeTask;
+const library = createLibraryStore(()=>{
+  libraryReady=true; storageError=undefined; clearFailed=false; resetLibraryMemory();
+  toast('已同步清除其他分頁刪除的文件與圖片。');
+});
+try { history.scrollRestoration = 'manual'; } catch { /* Local-file browser policies vary. */ }
+
+function hasPendingSave() { return dirtyDocuments.size || dirtyAssets.size || dirtyPositions.size || pendingSelection; }
+function renderLibraryStatus() {
+  const status=$('library-status');
+  let state='saved', text='文件與進度會保存在此瀏覽器';
+  if (libraryLoading) { state='loading'; text='正在恢復閱讀空間…'; }
+  else if (clearing) { state='saving'; text='正在清除已保存資料…'; }
+  else if (storageError) { state='error'; text=clearFailed ? '清除失敗，資料仍保留' : '尚未保存，請保留原始文件'; }
+  else if (savePromise || hasPendingSave()) { state='saving'; text='正在保存文件與閱讀進度…'; }
+  else if (resumeTask) { state='restoring'; text='正在恢復閱讀位置…'; }
+  else if (assetBlobs.size || [...documents.values()].some(doc=>!doc.demo)) text='文件、圖片與進度已保存在此瀏覽器';
+  status.textContent=text; status.dataset.state=state;
+  status.title=storageError ? '瀏覽器可能禁止儲存或空間不足。請重試；尚未保存的資料關閉後可能遺失。' : '只保存在這個瀏覽器，不會上傳；可按文件清單的清除按鈕刪除。';
+  $('library-retry').hidden=state!=='error';
+  $('library-retry').textContent=clearFailed ? '重試清除' : '重試保存';
+}
+function scheduleLibrarySave() {
+  if (libraryLoading || clearing || storageError || saveTimer) return;
+  saveTimer=setTimeout(()=>{ saveTimer=undefined; void flushLibrary(); },500);
+  renderLibraryStatus();
+}
+function selectForSaving() {
+  pendingSelection={path:current.path,updatedAt:Date.now()};
+  scheduleLibrarySave();
+}
+function rememberPosition() {
+  if (libraryLoading || clearing || resumeTask || printMedia.matches || current.demo || displayedDocument!==current || documents.get(current.path)!==current) return;
+  const y=window.scrollY, end=document.documentElement.scrollHeight;
+  const index=Math.max(0,activeHeadingIndex), top=headingPositions[index];
+  const height=Math.max(1,(headingPositions[index+1] || end) - (top || 0));
+  const position={path:current.path,revision:current.revision,y,ratio:y/Math.max(1,end-window.innerHeight),anchor:activeHeadings[index]?.id || '',fraction:Math.max(0,Math.min(1,(y+150-(top || 0))/height)),atEnd:y+window.innerHeight>=end-5,updatedAt:Date.now()};
+  const previous=readingPositions.get(current.path);
+  if (previous && Math.abs(previous.y-y)<1 && previous.anchor===position.anchor && previous.atEnd===position.atEnd) return;
+  readingPositions.set(current.path,position); dirtyPositions.set(current.path,position);
+  selectForSaving();
+}
+function checkpointLibrary() {
+  if (libraryLoading || clearing || !libraryReady) return;
+  if (!resumeTask) updateProgress();
+  library.checkpoint(pendingSelection || {path:current.path,updatedAt:Date.now()},readingPositions.get(current.path));
+}
+function flushLibrary() {
+  clearTimeout(saveTimer); saveTimer=undefined;
+  if (libraryLoading || clearing) return Promise.resolve();
+  if (savePromise) return savePromise;
+  const generation=libraryGeneration;
+  savePromise=(async()=>{
+    try {
+      if (!libraryReady) await hydrateLibrary(false);
+      if (generation!==libraryGeneration || clearing || !hasPendingSave()) return;
+      checkpointLibrary();
+      const docs=[...dirtyDocuments.values()], images=[...dirtyAssets.values()], positions=[...dirtyPositions.values()], selected=pendingSelection;
+      await library.write({documents:docs,assets:images,positions,current:selected});
+      if (generation!==libraryGeneration) return;
+      for (const [map,entries] of [[dirtyDocuments,docs],[dirtyAssets,images],[dirtyPositions,positions]]) for (const entry of entries) if (map.get(entry.path)===entry) map.delete(entry.path);
+      if (pendingSelection===selected) pendingSelection=undefined;
+      storageError=undefined; clearFailed=false;
+    } catch(error) { if (generation===libraryGeneration) storageError=error; }
+  })().finally(()=>{
+    savePromise=undefined;
+    if (!storageError && hasPendingSave()) scheduleLibrarySave();
+    renderLibraryStatus();
+  });
+  renderLibraryStatus();
+  return savePromise;
+}
+async function hydrateLibrary(resume) {
+  const generation=libraryGeneration;
+  const saved=await library.load();
+  if (generation!==libraryGeneration) return;
+  for (const row of saved.documents) {
+    const path=typeof row.path==='string' && normalizePath(row.path);
+    if (!path || path.startsWith('範例/') || !isMarkdown(path) || typeof row.source!=='string' || row.source.length>MAX_DOCUMENT_BYTES || documents.has(path)) continue;
+    const bytes=textBytes(row.source);
+    if (!canStoreDocument({path},bytes)) continue;
+    documents.set(path,{path,source:row.source,bytes,name:path.split('/').pop(),revision:typeof row.revision==='string' ? row.revision : newRevision(),pasted:row.pasted===true});
+    const pasted=/^貼上\/(\d+)\//.exec(path);
+    if (pasted && Number(pasted[1])<=1e9) pasteCounter=Math.max(pasteCounter,Number(pasted[1]));
+  }
+  let total=[...assetSizes.values()].reduce((sum,bytes)=>sum+bytes,0);
+  for (const row of saved.assets) {
+    const path=typeof row.path==='string' && normalizePath(row.path);
+    if (!path || path.startsWith('範例/') || !/\.(png|jpe?g|gif|webp|avif|svg|bmp|ico)$/i.test(path) || assetBlobs.has(path) || !(row.blob instanceof Blob) || row.blob.size>MAX_IMAGE_BYTES || total+row.blob.size>MAX_ASSET_BYTES) continue;
+    assetBlobs.set(path,row.blob); assetSizes.set(path,row.blob.size); assets.set(path,URL.createObjectURL(row.blob)); total+=row.blob.size;
+  }
+  const restorePosition=position=>{
+    const doc=position && documents.get(position.path);
+    if (!doc || doc.demo || position.revision!==doc.revision || !Number.isFinite(position.y) || position.y<0 || !Number.isFinite(position.ratio) || position.ratio<0 || position.ratio>1 || !Number.isFinite(position.fraction) || position.fraction<0 || position.fraction>1 || typeof position.anchor!=='string' || position.anchor.length>1000 || !Number.isFinite(position.updatedAt)) return;
+    if (position.updatedAt>(readingPositions.get(doc.path)?.updatedAt || 0)) readingPositions.set(doc.path,position);
+  };
+  for (const position of saved.positions) restorePosition(position);
+  restorePosition(saved.checkpoint?.position);
+  const selected=(saved.checkpoint?.current?.updatedAt || 0)>(saved.current?.updatedAt || 0) ? saved.checkpoint.current : saved.current;
+  libraryReady=true;
+  if (resume && documents.has(selected?.path)) current=documents.get(selected.path);
+  if (!resume) { renderFiles(); renderImages(currentImages); }
+}
+function resetLibraryMemory() {
+  libraryGeneration++; resumeTask=undefined; clearTimeout(saveTimer); saveTimer=undefined;
+  dirtyDocuments.clear(); dirtyAssets.clear(); dirtyPositions.clear(); readingPositions.clear(); pendingSelection=undefined;
+  for (const [path,doc] of documents) if (!doc.demo) documents.delete(path);
+  for (const path of [...assetBlobs.keys()]) releaseAsset(path);
+  pasteCounter=0; remoteAllowed=false;
+  $('file-search').value=''; $('paste-content').value=''; $('paste-name').value='未命名文件.md';
+  showDocument(demoDocs[0],{record:false}); renderLibraryStatus();
+}
+async function clearLibrary() {
+  if (clearing) return;
+  clearing=true; libraryGeneration++; resumeTask=undefined;
+  clearTimeout(saveTimer); saveTimer=undefined; renderLibraryStatus();
+  try {
+    await library.clear();
+    resetLibraryMemory(); libraryReady=true; storageError=undefined; clearFailed=false;
+    toast('已刪除此瀏覽器保存的文件、圖片與閱讀進度。');
+  } catch(error) { storageError=error; clearFailed=true; }
+  finally { clearing=false; renderLibraryStatus(); }
+}
+async function resumePosition(position,task) {
+  try {
+    await renderAllFeatures();
+    await Promise.race([Promise.allSettled([...$('document').querySelectorAll('img')].map(img=>img.decode())),new Promise(resolve=>setTimeout(resolve,5000))]);
+    await document.fonts.ready;
+    await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+    if (resumeTask!==task || task.version!==renderVersion) return;
+    const max=Math.max(0,document.documentElement.scrollHeight-innerHeight);
+    const index=activeHeadings.findIndex(heading=>heading.id===position.anchor);
+    let target=position.ratio*max;
+    if (index>=0) {
+      const top=activeHeadings[index].getBoundingClientRect().top+scrollY;
+      const end=activeHeadings[index+1] ? activeHeadings[index+1].getBoundingClientRect().top+scrollY : document.documentElement.scrollHeight;
+      target=top+position.fraction*Math.max(1,end-top)-150;
+    }
+    window.scrollTo({top:position.atEnd ? max : Math.max(0,Math.min(max,target)),behavior:'instant'});
+  } catch {
+    if (resumeTask===task && task.version===renderVersion) window.scrollTo({top:position.y,behavior:'instant'});
+  } finally {
+    if (resumeTask===task) { resumeTask=undefined; measureHeadings=true; updateProgress(); renderLibraryStatus(); }
+  }
+}
 
 function preference(key, value) {
   try {
@@ -109,7 +261,7 @@ function renderFiles() {
     (doc.demo ? $('demo-files') : $('user-files')).append(button);
   }
   $('file-count').textContent = String(userCount).padStart(2,'0');
-  $('clear-files').hidden = !userCount;
+  $('clear-files').hidden = !userCount && !assetBlobs.size;
   $('empty-files').hidden = filteredCount > 0;
   $('empty-files').textContent = search ? '沒有符合的文件。' : userCount ? '沒有符合的文件。' : '把散落的想法，\n放進同一個閱讀空間。';
   refreshIcons();
@@ -259,6 +411,7 @@ function updateProgress() {
     selected?.setAttribute('aria-current','location');
     activeHeadingIndex = next;
   }
+  rememberPosition();
 }
 
 async function renderDiagrams(diagrams, version) {
@@ -340,10 +493,14 @@ function prepareFeatures(rendered,version) {
   watch('[data-math-index]',startFormulas);
 }
 
-function showDocument(doc, {preserveScroll = false, anchor = ''} = {}) {
+function showDocument(doc, {preserveScroll = false, anchor = '',record = true} = {}) {
+  if (record) rememberPosition();
+  resumeTask=undefined;
   if (current !== doc) remoteAllowed = false;
   current = doc;
   const version = ++renderVersion;
+  const position=record && !preserveScroll && !anchor && readingPositions.get(doc.path);
+  if (position && position.revision===doc.revision && position.y>5) resumeTask={version};
   const scrollPosition = window.scrollY;
   let rendered;
   try { rendered = renderMarkdown(doc.source); } catch {
@@ -372,8 +529,12 @@ function showDocument(doc, {preserveScroll = false, anchor = ''} = {}) {
   else window.scrollTo({top:scrollPosition,behavior:'instant'});
   refreshIcons();
   prepareFeatures(rendered,version);
+  displayedDocument=doc;
+  if (record) selectForSaving();
   if (anchor) renderAllFeatures().then(() => { if (version === renderVersion) jumpToAnchor(anchor); });
+  if (resumeTask) void resumePosition(position,resumeTask);
   updateProgress();
+  renderLibraryStatus();
 }
 
 function jumpToAnchor(anchor) {
@@ -389,6 +550,7 @@ function releaseAsset(path) {
   if (url && !path.startsWith('範例/')) URL.revokeObjectURL(url);
   assets.delete(path);
   assetSizes.delete(path);
+  assetBlobs.delete(path);
 }
 
 function canStoreDocument(doc, bytes) {
@@ -404,6 +566,8 @@ function canStoreDocument(doc, bytes) {
 }
 
 async function importFiles(fileEntries) {
+  if (clearing) { toast('正在清除已保存資料，請稍候再匯入。'); return; }
+  const generation=libraryGeneration;
   const added = [];
   let assetCount = 0;
   let failures = 0;
@@ -418,10 +582,15 @@ async function importFiles(fileEntries) {
       if (file.size > MAX_DOCUMENT_BYTES || !canStoreDocument({path},file.size)) { skipped++; continue; }
       try {
         const source = (await file.text()).replace(/^\uFEFF/,'');
+        if (generation!==libraryGeneration) return;
         const bytes = textBytes(source);
-        const doc = {path, source, bytes, name:path.split('/').pop()};
+        const previous=documents.get(path);
+        const revision=previous?.source===source ? previous.revision : newRevision();
+        const doc = {path, source, bytes, name:path.split('/').pop(),revision};
         if (!canStoreDocument(doc,bytes)) { skipped++; continue; }
+        if (previous?.revision!==revision) { readingPositions.delete(path); dirtyPositions.delete(path); }
         documents.set(path,doc);
+        dirtyDocuments.set(path,doc);
         added.push(doc);
       } catch { failures++; }
     } else if (/\.(png|jpe?g|gif|webp|avif|svg|bmp|ico)$/i.test(path)) {
@@ -429,7 +598,9 @@ async function importFiles(fileEntries) {
       if (file.size > MAX_IMAGE_BYTES || retainedBytes + file.size > MAX_ASSET_BYTES) { skipped++; continue; }
       const mime = file.type || ({svg:'image/svg+xml',png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',gif:'image/gif',webp:'image/webp',avif:'image/avif',bmp:'image/bmp',ico:'image/x-icon'})[path.split('.').pop().toLowerCase()];
       releaseAsset(path);
-      assets.set(path,URL.createObjectURL(new Blob([file], {type:mime})));
+      const blob=new Blob([file], {type:mime});
+      assets.set(path,URL.createObjectURL(blob)); assetBlobs.set(path,blob);
+      dirtyAssets.set(path,{path,blob});
       assetSizes.set(path,file.size);
       assetCount++;
     }
@@ -440,10 +611,12 @@ async function importFiles(fileEntries) {
     toast(`已開啟 ${added.length} 份文件${assetCount ? `，載入 ${assetCount} 張圖片` : ''}${failures ? `；${failures} 份檔案無法讀取` : ''}${skipped ? `；${skipped} 份超過容量或數量限制已略過` : ''}。`);
     document.body.classList.remove('sidebar-mobile-open');
   } else if (assetCount) {
+    renderFiles();
     renderImages(currentImages);
     refreshIcons();
     toast(`已載入 ${assetCount} 張圖片${skipped ? `；${skipped} 份超過容量或數量限制已略過` : ''}。`);
   } else toast(skipped ? '超過匯入限制：單份文件 2 MiB、文件共 200 份／20 MiB、圖片單張 20 MiB／共 100 MiB、每次 1,000 份檔案。' : failures ? '檔案無法讀取，請重新選取。' : '沒有找到 Markdown 文件。支援 .md、.markdown 與 .txt。');
+  if (added.length || assetCount) await flushLibrary();
 }
 
 async function readDirectoryEntry(entry, result, parent = '') {
@@ -495,19 +668,15 @@ for (const id of ['file-input','folder-input']) $(id).addEventListener('change',
   await importFiles(files);
 });
 $('file-search').addEventListener('input',renderFiles);
-$('clear-files').addEventListener('click', () => {
-  for (const [path,doc] of documents) if (!doc.demo) documents.delete(path);
-  for (const path of assets.keys()) if (!path.startsWith('範例/')) releaseAsset(path);
-  $('file-search').value = '';
-  $('paste-content').value = '';
-  $('paste-name').value = '未命名文件.md';
-  if (!current.demo) showDocument(demoDocs[0]);
-  else renderFiles();
-  toast('已清除匯入的文件與圖片。');
+$('clear-files').addEventListener('click',()=>{ void clearLibrary(); });
+$('library-retry').addEventListener('click',()=>{
+  if (clearFailed) void clearLibrary();
+  else { storageError=undefined; void flushLibrary(); }
 });
 $('paste-button').addEventListener('click', () => openPaste());
 $('paste-content').addEventListener('input', () => { $('paste-count').textContent = `${$('paste-content').value.length.toLocaleString()} 字元`; });
 $('paste-submit').addEventListener('click', () => {
+  if (clearing) { toast('正在清除已保存資料，請稍候。'); return; }
   const source = $('paste-content').value;
   if (!source.trim()) { $('paste-content').focus(); toast('先貼上一些文字，再開始閱讀。'); return; }
   let name = $('paste-name').value.trim() || '未命名文件.md';
@@ -515,14 +684,16 @@ $('paste-submit').addEventListener('click', () => {
   if (!isMarkdown(name)) name += '.md';
   if (source.length > MAX_DOCUMENT_BYTES) { toast('單份文件上限為 2 MiB，請先分割內容。'); return; }
   const bytes = textBytes(source);
-  const doc = {path:`貼上/${pasteCounter + 1}/${name}`, name, source, bytes, pasted:true};
+  const doc = {path:`貼上/${pasteCounter + 1}/${name}`, name, source, bytes, pasted:true,revision:newRevision()};
   if (!canStoreDocument(doc,bytes)) { toast('超過容量限制：單份文件 2 MiB、文件共 200 份／20 MiB。'); return; }
   pasteCounter++;
   documents.set(doc.path,doc);
+  dirtyDocuments.set(doc.path,doc);
   $('paste-dialog').close();
   $('file-search').value = '';
   showDocument(doc);
   document.body.classList.remove('sidebar-mobile-open');
+  void flushLibrary();
 });
 $('help-button').addEventListener('click', () => $('help-dialog').showModal());
 for (const dialog of document.querySelectorAll('dialog')) dialog.addEventListener('click', e => { if (e.target === dialog) { const r = dialog.getBoundingClientRect(); if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) dialog.close(); } });
@@ -614,6 +785,13 @@ window.addEventListener('drop', async e => {
   } catch { toast('資料夾無法完整讀取，請改用「匯入資料夾」。'); }
 });
 window.addEventListener('scroll',scheduleProgress,{passive:true});
+const cancelResume=()=>{ if (resumeTask) { resumeTask=undefined; renderLibraryStatus(); } };
+window.addEventListener('wheel',cancelResume,{passive:true});
+window.addEventListener('touchstart',cancelResume,{passive:true});
+window.addEventListener('pointerdown',cancelResume,{passive:true});
+window.addEventListener('keydown',event=>{ if (['ArrowDown','ArrowUp','PageDown','PageUp','Home','End',' '].includes(event.key)) cancelResume(); });
+document.addEventListener('visibilitychange',()=>{ if (document.hidden) { checkpointLibrary(); void flushLibrary(); } });
+window.addEventListener('pagehide',()=>{ checkpointLibrary(); void flushLibrary(); });
 new ResizeObserver(() => { measureHeadings = true; scheduleProgress(); }).observe($('document'));
 let resizeTimer;
 window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { updateTables(); updateProgress(); },100); });
@@ -622,7 +800,12 @@ window.addEventListener('beforeunload', () => { for (const url of assets.values(
 setTheme(preference('theme') === 'dark' ? 'dark' : 'light',false);
 const savedSize = Number(preference('font-size'));
 setFont(Number.isFinite(savedSize) && savedSize >= 13 ? savedSize : 16);
-$('loading').hidden = true;
-$('app').hidden = false;
-showDocument(current);
-prepareOffline();
+async function startReader() {
+  try { await hydrateLibrary(true); } catch(error) { storageError=error; }
+  libraryLoading=false;
+  $('loading').hidden = true;
+  $('app').hidden = false;
+  showDocument(current);
+  prepareOffline();
+}
+void startReader();

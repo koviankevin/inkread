@@ -154,13 +154,14 @@ try {
 
   await page.setViewportSize({width:1440,height:1050});
   await page.locator('#clear-files').click();
+  await page.waitForFunction(()=>document.querySelectorAll('#user-files button').length===0);
   assert.equal(await page.locator('#user-files button').count(),0);
   await context.setOffline(false);
   await page.reload();
   await page.locator('#app:not([hidden])').waitFor();
   assert.equal(await page.locator('#user-files button').count(),0);
   assert.equal(errors.length,0,errors.join('\n'));
-  pass('Clear imported files, no document persistence, no uncaught browser errors');
+  pass('Clear saved documents, no restoration after clearing, no uncaught browser errors');
   const localContext = await browser.newContext({serviceWorkers:"block",viewport:{width:1440,height:1050}});
   await localContext.route('**/*', route => /^(file:|blob:|data:)/.test(route.request().url()) ? route.continue() : route.abort());
   await localContext.setOffline(true);
