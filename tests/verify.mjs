@@ -36,8 +36,11 @@ const server = createServer(async (req,res) => {
 });
 await new Promise(resolve => server.listen(0,'127.0.0.1',resolve));
 const base = `http://127.0.0.1:${server.address().port}`;
-const browser = await chromium.launch({executablePath:process.env.CHROMIUM_PATH || '/usr/bin/chromium',headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
+let browser;
 try {
+  console.log('Launching test browser...');
+  browser = await chromium.launch({executablePath:process.env.CHROMIUM_PATH || undefined,headless:true,timeout:30000,args:['--no-sandbox','--disable-dev-shm-usage']});
+  console.log('Test browser ready.');
   const context = await browser.newContext({viewport:{width:1440,height:1050}});
   await context.route('**/*', route => route.request().url().startsWith(base) || /^(blob:|data:)/.test(route.request().url()) ? route.continue() : route.abort());
   const page = await context.newPage();
@@ -183,4 +186,4 @@ try {
   pass('Offline file:// opening, Mermaid labels, KaTeX fonts and imported local images');
   await writeFile(path.join(output,'results.json'),JSON.stringify({passed:results.length,results,uncaughtErrors:errors,remoteRequests,blockedInjectedRequests},null,2));
   console.log(`\n${results.length} checks passed.`);
-} finally { await browser.close(); server.close(); }
+} finally { await browser?.close(); server.close(); }

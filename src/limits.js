@@ -1,0 +1,10 @@
+export const MAX_DOCUMENT_BYTES = 2 * 1024 * 1024;
+export const MAX_DOCUMENTS = 200;
+export const MAX_TEXT_BYTES = 20 * 1024 * 1024;
+export const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+export const MAX_ASSET_BYTES = 100 * 1024 * 1024;
+export const MAX_IMPORT_FILES = 1000;
+export const MAX_DIAGRAMS = 20;
+export const MAX_HIGHLIGHT_CHARS = 20000;
+const encoder = new TextEncoder();
+export const textBytes = source => encoder.encode(source).byteLength;

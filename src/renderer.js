@@ -5,6 +5,7 @@ import katex from 'katex';
 import hljs from 'highlight.js/lib/common';
 import DOMPurify from 'dompurify';
 import { headingSlug } from './paths.js';
+import {MAX_DOCUMENT_BYTES, MAX_DIAGRAMS, MAX_HIGHLIGHT_CHARS, textBytes} from './limits.js';
 
 const md = new MarkdownIt({html:false, linkify:true, typographer:true, breaks:false});
 md.use(taskLists, {enabled:false, label:false});
@@ -27,11 +28,14 @@ md.renderer.rules.fence = (tokens, index, options, env) => {
   const token = tokens[index];
   const language = token.info.trim().split(/\s+/)[0].toLowerCase();
   if (language === 'mermaid') {
+    if (env.diagrams.length >= MAX_DIAGRAMS || token.content.length > 50000) {
+      return `<div class="render-error"><p>圖表超過單份文件 20 張或單張 50,000 字元的限制，已保留原始內容。</p><pre>${escapeHTML(token.content)}</pre></div>`;
+    }
     const diagramId = env.diagrams.push(token.content) - 1;
     return `<div class="mermaid-container" data-diagram-index="${diagramId}" role="img" aria-label="Mermaid 圖表"><span>圖表繪製中…</span></div>`;
   }
   let code = escapeHTML(token.content);
-  if (language && hljs.getLanguage(language)) {
+  if (token.content.length <= MAX_HIGHLIGHT_CHARS && language && hljs.getLanguage(language)) {
     try { code = hljs.highlight(token.content, {language, ignoreIllegals:true}).value; } catch { /* render plain code */ }
   }
   return `<div class="code-block"><div class="code-bar"><span>${escapeHTML(language || 'text')}</span><button class="copy-code" type="button" aria-label="複製程式碼"><i data-lucide="copy"></i><span>複製</span></button></div><pre><code${language ? ` class="language-${escapeHTML(language)}"` : ''}>${code}</code></pre></div>`;
@@ -41,6 +45,7 @@ md.renderer.rules.table_open = () => '<div class="table-container"><div class="t
 md.renderer.rules.table_close = () => '</table></div></div>\n';
 
 export function renderMarkdown(source) {
+  if (source.length > MAX_DOCUMENT_BYTES || textBytes(source) > MAX_DOCUMENT_BYTES) throw new Error('Document exceeds 2 MiB');
   const env = {images:[], diagrams:[], slugs:new Map()};
   const raw = md.render(source, env);
   const html = DOMPurify.sanitize(raw, {ADD_ATTR:['target'], FORBID_TAGS:['style','iframe','object','embed','form'], FORBID_ATTR:['srcdoc']});
@@ -59,7 +64,7 @@ export function sanitizeDiagram(svg) {
 }
 
 export function safeDiagramSource(source) {
-  const cleaned = source.replace(/^---\s*\n[\s\S]*?\n---\s*\n/,'').replace(/%%\{[\s\S]*?\}%%/g,'').replace(/^\s*click\s+.*$/gm,'');
+  const cleaned = source.replace(/^\s*---\s*\r?\n[\s\S]*?\r?\n---\s*(?:\r?\n|$)/,'').replace(/%%\{[\s\S]*?\}%%/g,'').replace(/^\s*click\s+.*$/gm,'');
   if (/@import|@font-face|\b(?:https?|ftp|data|javascript):|\burl\s*\(|\b(?:img|icon)\s*:|<(?:img|image|iframe|script|style|link|object|embed|svg|foreignObject)\b/i.test(cleaned)) throw new Error('External graph resources are disabled');
   return cleaned;
 }

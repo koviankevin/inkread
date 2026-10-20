@@ -20,7 +20,10 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm audit --audit-level=low
+      - run: npx playwright-core install --with-deps chromium
       - run: npm run build
+      - run: npm test
       - name: Package offline website
         run: cd dist && zip -r inkread-offline.zip .
       - uses: actions/configure-pages@v5

@@ -3,6 +3,7 @@ import mermaid from 'mermaid';
 import {createIcons, Plus, Search, X, FolderOpen, ShieldCheck, CircleHelp, PanelLeft, ChevronRight, Minus, Moon, Sun, Printer, List, FileText, FileUp, BookOpen, ArrowUp, Copy, Check, Sparkles, ImageOff, ArrowLeftRight, FileCode2, ChartNoAxesCombined} from 'lucide';
 import {renderMarkdown, sanitizeDiagram, safeDiagramSource} from './renderer.js';
 import {normalizePath, resolvePath, isMarkdown, imageKind} from './paths.js';
+import {MAX_DOCUMENT_BYTES, MAX_DOCUMENTS, MAX_TEXT_BYTES, MAX_IMAGE_BYTES, MAX_ASSET_BYTES, MAX_IMPORT_FILES, textBytes} from './limits.js';
 import introduction from '../samples/開始閱讀.md';
 import charts from '../samples/圖表與公式.md';
 import tables from '../samples/表格筆記.md';
@@ -18,6 +19,7 @@ const demoDocs = [
 ];
 const documents = new Map(demoDocs.map(doc => [doc.path,doc]));
 const assets = new Map();
+const assetSizes = new Map();
 const sampleBlob = URL.createObjectURL(new Blob([sampleImage], {type:'image/svg+xml'}));
 assets.set('範例/assets/reading-flow.svg', sampleBlob);
 let current = demoDocs[0];
@@ -26,7 +28,11 @@ let currentImages = [];
 let renderVersion = 0;
 let activeRender = Promise.resolve();
 let activeHeadings = [];
-let headingObserver;
+let headingPositions = [];
+let tocLinks = [];
+let activeHeadingIndex = -1;
+let measureHeadings = true;
+let progressFrame = 0;
 let fontSize = 16;
 let toastTimer;
 let dragDepth = 0;
@@ -186,11 +192,13 @@ function updateTables() {
 }
 
 function buildTOC() {
-  headingObserver?.disconnect();
   const headings = [...$('document').querySelectorAll('h1,h2,h3,h4,h5,h6')];
   document.title = `${headings[0]?.textContent || current.name} · 墨閱 Inkread`;
   const tocHeadings = headings.filter(el => el.tagName === 'H2' || el.tagName === 'H3');
   activeHeadings = tocHeadings.length ? tocHeadings : headings;
+  tocLinks = [];
+  activeHeadingIndex = -1;
+  measureHeadings = true;
   $('toc-links').replaceChildren();
   for (const heading of activeHeadings) {
     const link = document.createElement('a');
@@ -204,6 +212,7 @@ function buildTOC() {
       requestAnimationFrame(updateProgress);
     });
     $('toc-links').append(link);
+    tocLinks.push(link);
   }
   if (!activeHeadings.length) {
     const text = document.createElement('span');
@@ -211,12 +220,19 @@ function buildTOC() {
     text.style.cssText = 'color:var(--muted);padding-left:14px';
     $('toc-links').append(text);
   }
-  headingObserver = new IntersectionObserver(updateProgress, {rootMargin:'-5% 0px -65% 0px'});
-  activeHeadings.forEach(heading => headingObserver.observe(heading));
+}
+
+function scheduleProgress() {
+  if (progressFrame) return;
+  progressFrame = requestAnimationFrame(() => { progressFrame = 0; updateProgress(); });
 }
 
 function updateProgress() {
   const article = $('document');
+  if (measureHeadings) {
+    headingPositions = activeHeadings.map(heading => heading.getBoundingClientRect().top + window.scrollY);
+    measureHeadings = false;
+  }
   const top = window.scrollY + article.getBoundingClientRect().top;
   const length = Math.max(1, article.offsetHeight - window.innerHeight + 100);
   const progress = Math.max(0, Math.min(100, (window.scrollY - top + 100) / length * 100));
@@ -225,15 +241,21 @@ function updateProgress() {
   $('progress-bar').style.width = `${percent}%`;
   $('toc-progress').style.width = `${percent}%`;
   $('reading-percent').textContent = `${percent}%`;
-  let active = activeHeadings[0];
-  for (const heading of activeHeadings) {
-    if (heading.getBoundingClientRect().top <= 150) active = heading;
+  let low = 0, high = headingPositions.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (headingPositions[middle] <= window.scrollY + 150) low = middle + 1;
+    else high = middle;
   }
-  for (const link of $('toc-links').querySelectorAll('a')) {
-    const selected = decodeURIComponent(link.hash.slice(1)) === active?.id;
-    link.classList.toggle('active',selected);
-    if (selected) link.setAttribute('aria-current','location');
-    else link.removeAttribute('aria-current');
+  const next = headingPositions.length ? Math.max(0,low - 1) : -1;
+  if (next !== activeHeadingIndex) {
+    const previous = tocLinks[activeHeadingIndex];
+    previous?.classList.remove('active');
+    previous?.removeAttribute('aria-current');
+    const selected = tocLinks[next];
+    selected?.classList.add('active');
+    selected?.setAttribute('aria-current','location');
+    activeHeadingIndex = next;
   }
 }
 
@@ -263,7 +285,7 @@ async function renderDiagrams(diagrams, version) {
 }
 
 function showDocument(doc, {preserveScroll = false, anchor = ''} = {}) {
-  if (current.path !== doc.path) remoteAllowed = false;
+  if (current !== doc) remoteAllowed = false;
   current = doc;
   const version = ++renderVersion;
   const scrollPosition = window.scrollY;
@@ -315,47 +337,69 @@ function releaseAsset(path) {
   const url = assets.get(path);
   if (url && !path.startsWith('範例/')) URL.revokeObjectURL(url);
   assets.delete(path);
+  assetSizes.delete(path);
+}
+
+function canStoreDocument(doc, bytes) {
+  if (bytes > MAX_DOCUMENT_BYTES) return false;
+  let count = documents.has(doc.path) ? 0 : 1;
+  let total = bytes;
+  for (const stored of documents.values()) {
+    if (stored.demo) continue;
+    count++;
+    if (stored.path !== doc.path) total += stored.bytes;
+  }
+  return count <= MAX_DOCUMENTS && total <= MAX_TEXT_BYTES;
 }
 
 async function importFiles(fileEntries) {
   const added = [];
   let assetCount = 0;
   let failures = 0;
-  for (const entry of fileEntries) {
+  let skipped = Math.max(0,fileEntries.length - MAX_IMPORT_FILES);
+  for (const entry of fileEntries.slice(0,MAX_IMPORT_FILES)) {
     const file = entry.file || entry;
     let path = normalizePath(entry.path || file.webkitRelativePath || file.name);
     if (!path) continue;
     // Keep bundled examples separate from user-provided paths.
     if (path.startsWith('範例/')) path = `匯入/${path}`;
     if (isMarkdown(path)) {
+      if (file.size > MAX_DOCUMENT_BYTES || !canStoreDocument({path},file.size)) { skipped++; continue; }
       try {
         const source = (await file.text()).replace(/^\uFEFF/,'');
-        const doc = {path, source, name:path.split('/').pop()};
+        const bytes = textBytes(source);
+        const doc = {path, source, bytes, name:path.split('/').pop()};
+        if (!canStoreDocument(doc,bytes)) { skipped++; continue; }
         documents.set(path,doc);
         added.push(doc);
       } catch { failures++; }
     } else if (/\.(png|jpe?g|gif|webp|avif|svg|bmp|ico)$/i.test(path)) {
+      const retainedBytes = [...assetSizes.values()].reduce((sum,size)=>sum+size,0) - (assetSizes.get(path) || 0);
+      if (file.size > MAX_IMAGE_BYTES || retainedBytes + file.size > MAX_ASSET_BYTES) { skipped++; continue; }
       const mime = file.type || ({svg:'image/svg+xml',png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',gif:'image/gif',webp:'image/webp',avif:'image/avif',bmp:'image/bmp',ico:'image/x-icon'})[path.split('.').pop().toLowerCase()];
       releaseAsset(path);
       assets.set(path,URL.createObjectURL(new Blob([file], {type:mime})));
+      assetSizes.set(path,file.size);
       assetCount++;
     }
   }
   if (added.length) {
     $('file-search').value = '';
     showDocument(added[0]);
-    toast(`已開啟 ${added.length} 份文件${assetCount ? `，載入 ${assetCount} 張圖片` : ''}${failures ? `；${failures} 份檔案無法讀取` : ''}。`);
+    toast(`已開啟 ${added.length} 份文件${assetCount ? `，載入 ${assetCount} 張圖片` : ''}${failures ? `；${failures} 份檔案無法讀取` : ''}${skipped ? `；${skipped} 份超過容量或數量限制已略過` : ''}。`);
     document.body.classList.remove('sidebar-mobile-open');
   } else if (assetCount) {
     renderImages(currentImages);
     refreshIcons();
-    toast(`已載入 ${assetCount} 張圖片。`);
-  } else toast(failures ? '檔案無法讀取，請重新選取。' : '沒有找到 Markdown 文件。支援 .md、.markdown 與 .txt。');
+    toast(`已載入 ${assetCount} 張圖片${skipped ? `；${skipped} 份超過容量或數量限制已略過` : ''}。`);
+  } else toast(skipped ? '超過匯入限制：單份文件 2 MiB、文件共 200 份／20 MiB、圖片單張 20 MiB／共 100 MiB、每次 1,000 份檔案。' : failures ? '檔案無法讀取，請重新選取。' : '沒有找到 Markdown 文件。支援 .md、.markdown 與 .txt。');
 }
 
 async function readDirectoryEntry(entry, result, parent = '') {
   const path = parent + entry.name;
   if (entry.isFile) {
+    if (!isMarkdown(path) && !/\.(png|jpe?g|gif|webp|avif|svg|bmp|ico)$/i.test(path)) return;
+    if (result.length >= MAX_IMPORT_FILES) throw new Error('Too many files');
     const file = await new Promise((resolve,reject) => entry.file(resolve,reject));
     result.push({file,path});
   } else if (entry.isDirectory) {
@@ -418,7 +462,11 @@ $('paste-submit').addEventListener('click', () => {
   let name = $('paste-name').value.trim() || '未命名文件.md';
   name = name.replace(/[\\/]/g,'-');
   if (!isMarkdown(name)) name += '.md';
-  const doc = {path:`貼上/${++pasteCounter}/${name}`, name, source, pasted:true};
+  if (source.length > MAX_DOCUMENT_BYTES) { toast('單份文件上限為 2 MiB，請先分割內容。'); return; }
+  const bytes = textBytes(source);
+  const doc = {path:`貼上/${pasteCounter + 1}/${name}`, name, source, bytes, pasted:true};
+  if (!canStoreDocument(doc,bytes)) { toast('超過容量限制：單份文件 2 MiB、文件共 200 份／20 MiB。'); return; }
+  pasteCounter++;
   documents.set(doc.path,doc);
   $('paste-dialog').close();
   $('file-search').value = '';
@@ -514,7 +562,8 @@ window.addEventListener('drop', async e => {
     await importFiles(result);
   } catch { toast('資料夾無法完整讀取，請改用「匯入資料夾」。'); }
 });
-window.addEventListener('scroll',updateProgress,{passive:true});
+window.addEventListener('scroll',scheduleProgress,{passive:true});
+new ResizeObserver(() => { measureHeadings = true; scheduleProgress(); }).observe($('document'));
 let resizeTimer;
 window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { updateTables(); updateProgress(); },100); });
 window.addEventListener('beforeunload', () => { for (const url of assets.values()) URL.revokeObjectURL(url); });

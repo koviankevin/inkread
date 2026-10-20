@@ -34,7 +34,7 @@ Markdown 中的原始 HTML 以文字顯示，不執行腳本。Mermaid 使用嚴
 
 ## 開發與建置
 
-需要 Node.js 22+ 與 npm。
+需要 Node.js 22.12+ 與 npm。
 
 ```sh
 npm ci
@@ -68,4 +68,14 @@ npm test
 
 ## 第三方授權
 
-依賴套件包含 Markdown-it、DOMPurify、highlight.js、Mermaid、KaTeX、Lucide 等。建置保留程式碼授權註解，並附上 `THIRD-PARTY-NOTICES.txt`。原始碼依賴版本以 `package-lock.json` 鎖定。
+本專案採用 [MIT 授權](./LICENSE)，著作權標示為 `Copyright (c) 2026 koviankevin`。可使用、修改、商用及再散布，須保留授權與著作權聲明。第三方元件仍適用各自的授權。
+
+依賴套件包含 Markdown-it、DOMPurify、highlight.js、Mermaid、KaTeX、Lucide 等。建置依 esbuild 的實際輸入蒐集直接及間接套件的完整授權／NOTICE，保留程式碼授權註解，並在網站及離線包附上 `LICENSE` 與 `THIRD-PARTY-NOTICES.txt`。原始碼依賴版本以 `package-lock.json` 鎖定。
+
+## 容量與效能
+
+單份文件上限 2 MiB、匯入文件合計 200 份／20 MiB；單張圖片 20 MiB、圖片合計 100 MiB，每次匯入最多 1,000 份檔案。每份文件最多繪製 20 張 Mermaid 圖，每張最多 50,000 字元及 500 條邊。超長程式碼區塊保留原文與複製功能，超過 20,000 字元時略過上色。
+
+長文件的章節位置會快取；捲動更新每個畫面幀最多一次，使用二分搜尋選取目前章節。文件解析與圖表繪製仍在主執行緒，複雜圖表仍可能短暫停頓。完整離線圖表套件也使 JavaScript 較大，首次載入成本高於一般純 Markdown 閱讀器。
+
+`npm test` 會執行功能驗收及安全／效能回歸；`npm audit` 查核鎖定依賴的已知弱點。GitHub Pages 部署前也會執行兩者。測試程式 `tests/audit.mjs --baseline` 可對未修改的舊版成品記錄基準，結果在 `test-results/`。
