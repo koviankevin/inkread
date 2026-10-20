@@ -1,0 +1,7 @@
+node_modules/
+dist/
+test-results/
+packages/
+*.zip
+.DS_Store
+.browser-cache/
