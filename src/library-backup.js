@@ -87,11 +87,14 @@ export async function decodeBackup(file) {
   const documents=[],assets=[];
   for (const {row,images,type,start} of entries) {
     const blob=file.slice(start,start+row.size,images ? type : 'text/plain');
-    if (hex(await digest(blob))!==row.sha256) invalid();
-    if (images) assets.push({path:row.path,blob});
+    const bytes=await blob.arrayBuffer();
+    if (hex(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)))!==row.sha256) invalid();
+    // Persist standalone verified image bytes, not a slice of the input archive.
+    // WebKit can lose file-backed slice bounds when IndexedDB is reopened.
+    if (images) assets.push({path:row.path,blob:new Blob([bytes],{type})});
     else {
       let source;
-      try { source=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(await blob.arrayBuffer()); } catch { invalid(); }
+      try { source=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(bytes); } catch { invalid(); }
       if (manifest.version===1 && (row.linkBase!==undefined || row.linkTargets!==undefined)) invalid();
       documents.push({path:row.path,source,bytes:row.size,pasted:row.pasted,...documentLinks(row)});
     }

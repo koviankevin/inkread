@@ -189,6 +189,7 @@ try {
   await offline(receiver); page=await receiver.newPage(); await page.goto(targetURL+'?reopened=1');
   await positionRestored(page,'接續閱讀',readerOffset);
   await page.locator('.katex').waitFor(); await page.locator('.mermaid-container svg').waitFor();
+  await page.waitForFunction(()=>{const img=document.querySelector('#document img[src^="blob:"]');return img?.complete && img.naturalWidth>0;});
   pass(compatibility ? 'Persistent profile reopens the transferred library with its origin returning HTTP 503' : 'A browser restart offline restores the transferred library without reimporting the backup');
 
   const secondArchive=path.join(temporary,'second.inkread'); await backup(page,secondArchive);
