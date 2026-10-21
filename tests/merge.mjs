@@ -102,6 +102,14 @@ const sourceURL=server.origin+'/source/',targetURL=server.origin+'/target/',opti
 let browser,sourceContext,targetContext,localContext,bothContext;
 async function setup(ctx) {
   ctx.setDefaultTimeout(30000);
+  await ctx.addInitScript(()=>{
+    window.__storageErrors=[];
+    const transaction=IDBDatabase.prototype.transaction;
+    IDBDatabase.prototype.transaction=function(...args) {
+      try { const tx=transaction.apply(this,args); tx.addEventListener('abort',()=>window.__storageErrors.push(String(tx.error))); return tx; }
+      catch(error) {window.__storageErrors.push(`${error.name}: ${error.message}`);throw error;}
+    };
+  });
   await ctx.route('**/*',route=>route.request().url().startsWith(server.origin+'/') || /^(file:|blob:|data:)/.test(route.request().url()) ? route.continue() : route.abort());
   ctx.on('page',page=>page.on('pageerror',error=>errors.push(error.message))); return ctx;
 }
@@ -285,6 +293,8 @@ try {
   await local.getByRole('heading',{name:'備份共用文件',exact:true}).waitFor(); await assertImage(local,'red');
   const restored=await rows(local);
   assert.equal(restored.documents.length,decodedBoth.documents.length);
+  const portableDocuments=docs=>docs.map(d=>({path:d.path,source:d.source,pasted:d.pasted,...documentLinks(d)})).sort((a,b)=>a.path.localeCompare(b.path));
+  assert.deepEqual(portableDocuments(restored.documents),portableDocuments(decodedBoth.documents));
   assert.deepEqual(restored.assets.map(a=>({path:a.path,text:a.text})).sort((a,b)=>a.path.localeCompare(b.path)),await Promise.all(decodedBoth.assets.map(async a=>({path:a.path,text:await a.blob.text()}))).then(a=>a.sort((a,b)=>a.path.localeCompare(b.path))));
   pass(`A format 2 backup transfers to a fresh ${compatibility ? 'HTTP' : 'file://'} library with independent images, document links and progress`);
 
@@ -292,9 +302,13 @@ try {
   console.log(`\n${results.length} library merge checks passed.`);
 } catch(error) {
   await writeFile(path.join(output,'merge-failure.json'),JSON.stringify({browser:browserName,completed:results,error:error.stack},null,2));
-  for (const ctx of [localContext,bothContext,targetContext,sourceContext]) {
-    const page=ctx?.pages().at(-1);
-    if (page && !page.isClosed()) await page.screenshot({path:path.join(output,'merge-failure.png')}).catch(()=>{});
+  for (const [index,ctx] of [localContext,bothContext,targetContext,sourceContext].entries()) {
+    for (const [tab,page] of (ctx?.pages() || []).entries()) if (!page.isClosed()) {
+      await page.screenshot({path:path.join(output,`merge-failure-${index}-${tab}.png`)}).catch(()=>{});
+      const diagnostic=await page.evaluate(()=>({url:location.href,y:scrollY,status:document.getElementById('library-status')?.outerHTML,offline:document.getElementById('offline-status')?.outerHTML,errors:window.__storageErrors,geometry:['restore-dialog','restore-confirm','library-status'].map(id=>{const el=document.getElementById(id),r=el?.getBoundingClientRect();return {id,rect:r?.toJSON(),hit:r ? document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.outerHTML.slice(0,500) : null};})})).catch(e=>({error:e.message}));
+      await writeFile(path.join(output,`merge-failure-${index}-${tab}.json`),JSON.stringify(diagnostic,null,2));
+      console.error('Browser failure diagnostic:',JSON.stringify(diagnostic));
+    }
   }
   throw error;
 } finally {

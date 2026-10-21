@@ -33,7 +33,7 @@ or make Firefox/WebKit prerequisites of the existing Pages deployment.
 | Concurrent writes | Another tab changes the destination after preview; stale merge is rejected and requires fresh choices |
 | Keep both / format 2 | Original and renamed copies, independent red/green image pixels and bytes, root/reference document links, separate reading progress; inspect exported manifest version 2 |
 | Reopening | Close and relaunch real persistent profiles; verify chosen/current copies and progress without reimporting |
-| Second transfer | Restore the actual downloaded format 2 archive into a fresh HTTP profile; check both copies, image bytes/pixels, document links and progress |
+| Second transfer | Restore the actual downloaded format 1 and format 2 archives into a fresh HTTP profile; check both copies, image bytes/pixels, document links and progress |
 | v1.7.1 sidebar | Examples initially closed; matching search opens them temporarily; clearing restores closed/open state; no-match empty state; keyboard expansion and manual state survive document selection |
 | Phone-sized UI | 390 and 320 px viewports: document list retained, real restore file chooser, restore mode control, dialog fits horizontally, cancel accessible and leaves list intact; existing merge conflict interaction at 390 px |
 

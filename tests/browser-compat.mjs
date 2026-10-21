@@ -30,9 +30,9 @@ export async function checkExamples(page,output,archive) {
   await page.locator('#user-files button').first().click();
   assert.equal(await section.evaluate(el=>el.open),true);
   // Selecting a document closes the mobile drawer. Reopen it through the UI.
-  await page.locator('#sidebar-toggle').click();
   for (const width of [390,320]) {
     await page.setViewportSize({width,height:844});
+    if (!await page.locator('#sidebar').isVisible()) await page.locator('#sidebar-toggle').click();
     assert.deepEqual(await page.locator('#user-files button').allTextContents(),names);
     await page.locator('#restore-library').scrollIntoViewIfNeeded();
     const chooser=page.waitForEvent('filechooser');

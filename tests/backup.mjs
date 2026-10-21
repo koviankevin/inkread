@@ -56,6 +56,14 @@ const options={executablePath:!compatibility ? process.env.CHROMIUM_PATH || unde
 let browser,donor,receiver,local;
 async function setup(ctx) {
   ctx.setDefaultTimeout(30000);
+  await ctx.addInitScript(()=>{
+    window.__storageErrors=[];
+    const transaction=IDBDatabase.prototype.transaction;
+    IDBDatabase.prototype.transaction=function(...args) {
+      try { const tx=transaction.apply(this,args); tx.addEventListener('abort',()=>window.__storageErrors.push(String(tx.error))); return tx; }
+      catch(error) {window.__storageErrors.push(`${error.name}: ${error.message}`);throw error;}
+    };
+  });
   await ctx.route('**/*',route=>route.request().url().startsWith(server.origin+'/') || /^(file:|blob:|data:)/.test(route.request().url()) ? route.continue() : route.abort());
   ctx.on('page',page=>page.on('pageerror',error=>errors.push(error.message)));
   return ctx;
@@ -181,6 +189,14 @@ try {
   if (compatibility) {
     await checkExamples(page,output,archive);
     pass('Collapsed examples, search expansion and mobile restore cancellation preserve the document list');
+    serverUnavailable=false;
+    local=await setup(await browser.newContext({viewport:{width:1440,height:900},acceptDownloads:true}));
+    const fresh=await local.newPage(); await fresh.goto(targetURL); await fresh.locator('#offline-status[data-state=ready]').waitFor(); await offline(local);
+    await preview(fresh,secondArchive); await fresh.locator('#restore-confirm').click(); await fresh.locator('#restore-dialog').waitFor({state:'hidden'});
+    await positionRestored(fresh,'接續閱讀',readerOffset);
+    await fresh.locator('#document a').filter({hasText:'下一份'}).click(); await positionRestored(fresh,'第二份接續',secondOffset);
+    assert.deepEqual((await rows(fresh)).documents.map(d=>d.path).sort(),content.documents.map(d=>d.path).sort());
+    pass('Re-exported format 1 archive restores into a fresh HTTP library with document links and progress');
     await probeFileOrigin(browser,path.join(root,'dist/index.html'),output);
   } else {
   local=await setup(await browser.newContext({serviceWorkers:'block',viewport:{width:1440,height:900},acceptDownloads:true}));
@@ -199,9 +215,13 @@ try {
   console.log(`\n${results.length} backup and restore checks passed.`);
 } catch(error) {
   await writeFile(path.join(output,'backup-failure.json'),JSON.stringify({browser:browserName,completed:results,error:error.stack},null,2));
-  for (const ctx of [receiver,donor]) {
-    const page=ctx?.pages().at(-1);
-    if (page && !page.isClosed()) await page.screenshot({path:path.join(output,'backup-failure.png')}).catch(()=>{});
+  for (const [index,ctx] of [receiver,donor].entries()) {
+    for (const [tab,page] of (ctx?.pages() || []).entries()) if (!page.isClosed()) {
+      await page.screenshot({path:path.join(output,`backup-failure-${index}-${tab}.png`)}).catch(()=>{});
+      const diagnostic=await page.evaluate(()=>({url:location.href,y:scrollY,status:document.getElementById('library-status')?.outerHTML,offline:document.getElementById('offline-status')?.outerHTML,errors:window.__storageErrors,geometry:['restore-dialog','restore-confirm','library-status'].map(id=>{const el=document.getElementById(id),r=el?.getBoundingClientRect();return {id,rect:r?.toJSON(),hit:r ? document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.outerHTML.slice(0,500) : null};})})).catch(e=>({error:e.message}));
+      await writeFile(path.join(output,`backup-failure-${index}-${tab}.json`),JSON.stringify(diagnostic,null,2));
+      console.error('Browser failure diagnostic:',JSON.stringify(diagnostic));
+    }
   }
   throw error;
 } finally {
