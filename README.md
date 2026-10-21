@@ -16,7 +16,12 @@
 
 1.5.0 起可在左側按 **「備份文件庫」**，下載一個 `.inkread` 檔，帶走所有匯入／貼上的文件、本機圖片、最後開啟的文件與各文件的閱讀進度。將檔案搬到另一台電腦或瀏覽器，開啟墨閱後按 **「還原文件庫」** 選取備份、核對數量，預設合併並保留目的地文件庫，也可明確選擇整庫取代；取消、損壞備份或儲存交易失敗都不會刪除原文件庫。
 
-備份與還原皆在本機處理，可完全離線使用，也支援解壓縮後的 `file://` 版。新電腦仍需先下載並解壓縮程式，或連線開啟網站等到「可離線使用」。備份不包含程式本身、範例、主題字級偏好、遠端圖片檔或其載入許可；遠端圖片還原後仍須主動允許。`.inkread` 含文件原文與圖片，**未加密**，請妥善保管。格式以 SHA-256 檢查檔案完整性，並遵循現有文件／圖片數量與容量限制；支援格式版本 1 與 2；含改名連結對應的備份使用版本 2，需以墨閱 1.7.0 以上還原。
+備份與還原皆在本機處理，可完全離線使用，也支援解壓縮後的 `file://` 版。新電腦仍需先下載並解壓縮程式，或連線開啟網站等到「可離線使用」。備份不包含程式本身、範例、主題字級偏好、遠端圖片檔或其載入許可；遠端圖片還原後仍須主動允許。`.inkread` 含文件原文與圖片，**未加密**，請妥善保管。格式以 SHA-256 檢查檔案完整性，並遵循現有文件／圖片數量與容量限制。
+
+| `.inkread` 格式 | 何時使用 | 還原相容性 |
+| :--- | :--- | :--- |
+| 版本 1 | 文件庫未含改名連結對應時，v1.7.0 以上仍輸出此格式 | v1.5.0 起支援；v1.7.0 以上可繼續讀取舊備份 |
+| 版本 2 | 文件庫含改名連結對應（例如「保留兩份」後） | **需要墨閱 v1.7.0 以上**；較舊程式會拒絕，請先更新目的地網站或離線下載版 |
 
 備份雜湊使用瀏覽器原生 Web Crypto，請以 HTTPS、localhost 或解壓縮後的本機版本使用備份與還原；一般 HTTP 內網頁面會提示改用這些方式。
 
@@ -74,7 +79,22 @@ npm run dev
 CHROMIUM_PATH=/usr/bin/chromium npm test
 ```
 
-40 組檢查涵蓋 10 組功能、7 組安全／效能、7 組延遲載入、7 組完整離線快取及 9 組本機文件庫驗證。包含關閉瀏覽器後斷網恢復文件、圖片、圖表公式與各份閱讀進度，保存失敗重試、跨分頁清除、損毀資料與 `file://`，也保留內網子目錄、寬表、手機、列印與惡意內容回歸。測試結果與截圖存入 `test-results/`。實際公司瀏覽器政策仍需另外驗收。
+目前 v1.7.1 的 `package.json` 依下列順序執行七支測試程式，合計 **66 項檢查**。[v1.7.1 GitHub Actions #39529034913](https://github.com/koviankevin/inkread/actions/runs/39529034913) 對應功能提交 `52c0c6df3096fcd35dfcdc97ed361067b31f78ce`，在 Ubuntu／Playwright Chromium（Chrome for Testing 156.0.8078.4）全數通過。歷史 v1.7.0 提交 `6a87983eb1e85438084ecab81404aa8f0f592116` 的 [#39517473841](https://github.com/koviankevin/inkread/actions/runs/39517473841) 也獨立通過 66 項；兩次執行分開記錄，不能以舊版結果代替新版驗收。這些是文件整合前的發布基準；本次純文件合併後須以新 main 提交的 Actions 確認發布結果。
+
+| 分類 | 測試程式 | 通過／總數 |
+| :--- | :--- | ---: |
+| 基本功能 | `tests/verify.mjs` | 10／10 |
+| 安全／效能 | `tests/audit.mjs` | 7／7 |
+| 延遲載入 | `tests/lazy-features.mjs` | 7／7 |
+| 完整離線快取 | `tests/offline-cache.mjs` | 7／7 |
+| 本機文件庫 | `tests/library.mjs` | 9／9 |
+| 備份與還原 | `tests/backup.mjs` | 10／10 |
+| 文件庫合併 | `tests/merge.mjs` | 16／16 |
+| **合計** | `npm test` | **66／66** |
+
+數量以各程式回報的檢查項目計算，包含 Node.js 格式／路徑檢查及 Chromium 瀏覽器整合操作；安全／效能程式以日誌 JSON 的 `checks` 陣列列出 7 項。`benchmark:startup` 是另行執行的效能量測，不計入 66 項。
+
+涵蓋離線重開、文件／圖片／閱讀進度、保存失敗與跨分頁，以及備份還原、衝突選擇、保留兩份、連結對應、再次備份和 `file://` 搬移。測試結果與截圖存入 `test-results/`。跨設定檔／網址的自動還原測試仍使用 Chromium，手機檢查使用窄視窗；**不代表已完成不同瀏覽器或手機實機驗證**。舊版 Windows Chromium 與 Edge 首頁／範例的驗收紀錄見 `交接文件.md`；v1.7.1 在實際 Edge、Firefox、Safari、手機及公司瀏覽器政策下的完整備份／合併還原流程仍待另行驗收。
 
 Windows 可指定測試瀏覽器後執行：
 
@@ -83,11 +103,11 @@ $env:CHROMIUM_PATH = 'C:\Program Files\Google\Chrome\Application\chrome.exe'
 npm test
 ```
 
-若本機端點防護軟體向頁面注入腳本，測試仍會封鎖外部請求。經確認的注入主機可用 `INKREAD_TEST_INJECTED_HOSTS` 另列於報告的 `blockedInjectedRequests`；預設不設定任何例外。詳細環境與本次驗收結果見 `交接文件.md`。
+若本機端點防護軟體向頁面注入腳本，測試仍會封鎖外部請求。經確認的注入主機可用 `INKREAD_TEST_INJECTED_HOSTS` 另列於報告的 `blockedInjectedRequests`；預設不設定任何例外。詳細環境、最新 CI 與歷史驗收紀錄見 `交接文件.md`。
 
 ## GitHub Pages
 
-儲存庫的 Actions 工作流程會在推送 `main` 後建置網站、打包離線 ZIP 並部署 GitHub Pages。儲存庫的 **Settings → Pages → Source** 需設為 **GitHub Actions**。部署完成後，網站根目錄的 `inkread-offline.zip` 可供下載。
+儲存庫的 Actions 工作流程會在推送 `main` 或手動觸發後，依序安裝依賴、執行 `npm audit --audit-level=low`、安裝 Chromium、建置網站及執行 `npm test`；全部成功才打包離線 ZIP、上傳 Pages 成品並部署。PR 本身不會觸發此工作流程。儲存庫的 **Settings → Pages → Source** 需設為 **GitHub Actions**。部署完成後，網站根目錄的 `inkread-offline.zip` 可供下載。
 
 ## 第三方授權
 
