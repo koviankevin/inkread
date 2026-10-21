@@ -36,6 +36,7 @@ const server = createServer(async (req,res) => {
 });
 await new Promise(resolve => server.listen(0,'127.0.0.1',resolve));
 const base = `http://127.0.0.1:${server.address().port}`;
+async function openDemos(page) { if (!await page.locator('#demo-section').evaluate(el=>el.open)) await page.locator('#demo-section summary').click(); }
 let browser;
 try {
   console.log('Launching test browser...');
@@ -75,6 +76,7 @@ try {
   await page.screenshot({path:path.join(output,'desktop.png'),fullPage:false});
   pass('HTTP subdirectory works with no external access; Mermaid labels, formulas and TOC');
 
+  await openDemos(page);
   await page.locator('#demo-files button').filter({hasText:'表格筆記.md'}).click();
   await page.waitForTimeout(200);
   assert.equal(await page.locator('.wide-table').count(),1);
@@ -128,6 +130,7 @@ try {
   assert.equal(await page.locator('.mermaid-container a,.mermaid-container image,.mermaid-container script').count(),0);
   pass('Mermaid strict rendering and SVG sanitization while offline');
 
+  await openDemos(page);
   await page.locator('#demo-files button').filter({hasText:'表格筆記.md'}).click();
   await page.emulateMedia({media:'print'});
   assert.equal(await page.locator('#sidebar').isVisible(),false);
@@ -144,6 +147,7 @@ try {
   await page.screenshot({path:path.join(output,'mobile.png'),fullPage:false});
   await page.locator('#sidebar-toggle').click();
   assert.equal(await page.locator('#sidebar').isVisible(),true);
+  await openDemos(page);
   await page.locator('#demo-files button').filter({hasText:'圖表與公式.md'}).click();
   assert.equal(await page.locator('#sidebar').isVisible(),false);
   await page.locator('#toc-toggle').click();

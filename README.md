@@ -2,6 +2,8 @@
 
 讓 Markdown 回到好閱讀。繁體中文介面，支援本機文件、好讀的表格、Mermaid 圖表與 LaTeX 公式；所有文件在瀏覽器內處理。
 
+1.7.1 起，側欄優先顯示「我的文件」，三份內建教學收在下方預設收合的「使用範例」。需要時點一下展開；搜尋到範例名稱時會自動展開，清除搜尋後恢復原本收合狀態。
+
 ## 直接使用
 
 [開啟線上墨閱](https://koviankevin.github.io/inkread/) · [下載離線網站 ZIP](https://koviankevin.github.io/inkread/inkread-offline.zip) · [GitHub 原始碼](https://github.com/koviankevin/inkread)
@@ -18,7 +20,7 @@
 
 | `.inkread` 格式 | 何時使用 | 還原相容性 |
 | :--- | :--- | :--- |
-| 版本 1 | 文件庫未含改名連結對應時，v1.7.0 仍輸出此格式 | v1.5.0 起支援；v1.7.0 可繼續讀取舊備份 |
+| 版本 1 | 文件庫未含改名連結對應時，v1.7.0 以上仍輸出此格式 | v1.5.0 起支援；v1.7.0 以上可繼續讀取舊備份 |
 | 版本 2 | 文件庫含改名連結對應（例如「保留兩份」後） | **需要墨閱 v1.7.0 以上**；較舊程式會拒絕，請先更新目的地網站或離線下載版 |
 
 備份雜湊使用瀏覽器原生 Web Crypto，請以 HTTPS、localhost 或解壓縮後的本機版本使用備份與還原；一般 HTTP 內網頁面會提示改用這些方式。
@@ -77,7 +79,7 @@ npm run dev
 CHROMIUM_PATH=/usr/bin/chromium npm test
 ```
 
-v1.7.0 的 `package.json` 依下列順序執行七支測試程式，合計 **66 項檢查**。[2026 年 10 月 21 日成功的 GitHub Actions](https://github.com/koviankevin/inkread/actions/runs/39517473841) 對應提交 `6a87983eb1e85438084ecab81404aa8f0f592116`，在 Ubuntu／Playwright Chromium（Chrome for Testing 156.0.8078.4）全數通過：
+目前 v1.7.1 的 `package.json` 依下列順序執行七支測試程式，合計 **66 項檢查**。[v1.7.1 GitHub Actions #39529034913](https://github.com/koviankevin/inkread/actions/runs/39529034913) 對應功能提交 `52c0c6df3096fcd35dfcdc97ed361067b31f78ce`，在 Ubuntu／Playwright Chromium（Chrome for Testing 156.0.8078.4）全數通過。歷史 v1.7.0 提交 `6a87983eb1e85438084ecab81404aa8f0f592116` 的 [#39517473841](https://github.com/koviankevin/inkread/actions/runs/39517473841) 也獨立通過 66 項；兩次執行分開記錄，不能以舊版結果代替新版驗收。這些是文件整合前的發布基準；本次純文件合併後須以新 main 提交的 Actions 確認發布結果。
 
 | 分類 | 測試程式 | 通過／總數 |
 | :--- | :--- | ---: |
@@ -92,7 +94,7 @@ v1.7.0 的 `package.json` 依下列順序執行七支測試程式，合計 **66 
 
 數量以各程式回報的檢查項目計算，包含 Node.js 格式／路徑檢查及 Chromium 瀏覽器整合操作；安全／效能程式以日誌 JSON 的 `checks` 陣列列出 7 項。`benchmark:startup` 是另行執行的效能量測，不計入 66 項。
 
-涵蓋離線重開、文件／圖片／閱讀進度、保存失敗與跨分頁，以及備份還原、衝突選擇、保留兩份、連結對應、再次備份和 `file://` 搬移。測試結果與截圖存入 `test-results/`。跨設定檔／網址的自動還原測試仍使用 Chromium，手機檢查使用窄視窗；**不代表已完成不同瀏覽器或手機實機驗證**。舊版 Windows Chromium 與 Edge 首頁／範例的驗收紀錄見 `交接文件.md`；v1.7.0 在實際 Edge、Firefox、Safari、手機及公司瀏覽器政策下的完整備份／合併還原流程仍待另行驗收。
+涵蓋離線重開、文件／圖片／閱讀進度、保存失敗與跨分頁，以及備份還原、衝突選擇、保留兩份、連結對應、再次備份和 `file://` 搬移。測試結果與截圖存入 `test-results/`。跨設定檔／網址的自動還原測試仍使用 Chromium，手機檢查使用窄視窗；**不代表已完成不同瀏覽器或手機實機驗證**。舊版 Windows Chromium 與 Edge 首頁／範例的驗收紀錄見 `交接文件.md`；v1.7.1 在實際 Edge、Firefox、Safari、手機及公司瀏覽器政策下的完整備份／合併還原流程仍待另行驗收。
 
 Windows 可指定測試瀏覽器後執行：
 
