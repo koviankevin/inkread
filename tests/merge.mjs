@@ -1,4 +1,4 @@
-import {chromium} from 'playwright-core';
+import {browserType,compatibility,browserName,checkExamples,probeFileOrigin,libraryContext} from './browser-compat.mjs';
 import assert from 'node:assert/strict';
 import {mkdir,mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
 import path from 'node:path';
@@ -8,7 +8,7 @@ import {documentLinks,resolveDocumentPath} from '../src/document-links.js';
 import {encodeBackup,decodeBackup} from '../src/library-backup.js';
 import {serveSites} from './site-server.mjs';
 
-const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),output=path.join(root,'test-results');
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),output=path.join(root,'test-results',...(compatibility ? [browserName] : []));
 await mkdir(output,{recursive:true});
 const temporary=await mkdtemp(path.join(output,'merge-test-')),results=[],errors=[];
 const pass=name=>{results.push(name);console.log(`PASS ${name}`);};
@@ -92,11 +92,24 @@ await writeFile(path.join(currentFolder,'shared.md'),currentSource); await write
 await writeFile(path.join(currentFolder,'picture.svg'),image('green')); await writeFile(path.join(currentFolder,'current.svg'),image('blue'));
 await writeFile(path.join(backupFolder,'shared.md'),backupSource); await writeFile(path.join(backupFolder,'only-backup.md'),'# 備份獨立文件\n\n[備份同名文件][copy]\n\n[copy]: /books/shared.md#備份接續\n\n![根目錄圖片](/books/picture.svg)\n\n`[範例](shared.md)`');
 await writeFile(path.join(backupFolder,'picture.svg'),image('red')); await writeFile(path.join(backupFolder,'extra.svg'),image('orange'));
-const server=await serveSites({source:path.join(root,'dist'),target:path.join(root,'dist')});
-const sourceURL=server.origin+'/source/',targetURL=server.origin+'/target/',options={executablePath:process.env.CHROMIUM_PATH || undefined,headless:true};
+let serverUnavailable=false;
+const server=await serveSites({source:path.join(root,'dist'),target:path.join(root,'dist')},{intercept:()=>serverUnavailable ? {status:503,body:'Compatibility test: server unavailable'} : undefined});
+// WebKit offline emulation can reject SW-served navigation (Playwright #42775).
+// Fail the real origin instead; unlike setOffline this verifies cache-only reopening
+// without claiming an OS/network disconnect in the compatibility jobs.
+async function offline(ctx) { if (compatibility) serverUnavailable=true; else await ctx.setOffline(true); }
+const sourceURL=server.origin+'/source/',targetURL=server.origin+'/target/',options={executablePath:!compatibility ? process.env.CHROMIUM_PATH || undefined : undefined,headless:true};
 let browser,sourceContext,targetContext,localContext,bothContext;
 async function setup(ctx) {
   ctx.setDefaultTimeout(30000);
+  await ctx.addInitScript(()=>{
+    window.__storageErrors=[]; window.__transactions={started:0,completed:0};
+    const transaction=IDBDatabase.prototype.transaction;
+    IDBDatabase.prototype.transaction=function(...args) {
+      try { const tx=transaction.apply(this,args); window.__transactions.started++; tx.addEventListener('complete',()=>window.__transactions.completed++); tx.addEventListener('abort',()=>window.__storageErrors.push(String(tx.error))); return tx; }
+      catch(error) {window.__storageErrors.push(`${error.name}: ${error.message}`);throw error;}
+    };
+  });
   await ctx.route('**/*',route=>route.request().url().startsWith(server.origin+'/') || /^(file:|blob:|data:)/.test(route.request().url()) ? route.continue() : route.abort());
   ctx.on('page',page=>page.on('pageerror',error=>errors.push(error.message))); return ctx;
 }
@@ -104,7 +117,9 @@ const saved=page=>page.locator('#library-status[data-state=saved]').waitFor();
 async function preview(page,archive) { await page.locator('#backup-input').setInputFiles(archive); await page.locator('#restore-dialog').waitFor({state:'visible'}); assert.equal(await page.locator('#restore-mode').inputValue(),'merge'); }
 async function choose(page,value='existing') { for (const select of await page.locator('#restore-conflicts select').all()) await select.selectOption(value); }
 const choice=(page,kind,file)=>page.locator(`#restore-conflicts select[data-kind="${kind}"][data-path="books/${file}"]`);
-async function confirm(page) { await page.locator('#restore-confirm').click(); await page.locator('#restore-dialog').waitFor({state:'hidden'}); await saved(page); }
+// Firefox's default clickable quad can drift inside a scrolled native dialog.
+// Pick an explicit interior point, retaining Playwright visibility/hit-target checks.
+async function confirm(page) { await page.locator('#restore-confirm').click(browserName==='firefox' ? {position:{x:12,y:12}} : {}); await page.locator('#restore-dialog').waitFor({state:'hidden'}); await saved(page); }
 async function at(page,name,amount=120) {
   await saved(page);
   await page.getByRole('heading',{name,exact:true}).evaluate((el,y)=>window.scrollTo({top:el.getBoundingClientRect().top+scrollY+y,behavior:'instant'}),amount);
@@ -130,18 +145,18 @@ async function rows(page) {
   });
 }
 try {
-  browser=await chromium.launch(options);
-  sourceContext=await setup(await browser.newContext({viewport:{width:1440,height:900},acceptDownloads:true}));
+  browser=await browserType.launch(options);
+  sourceContext=await setup(await libraryContext(browser,path.join(temporary,'donor-profile'),options,{viewport:{width:1440,height:900},acceptDownloads:true}));
   const from=await sourceContext.newPage(); await from.goto(sourceURL); await from.locator('#offline-status[data-state=ready]').waitFor();
   await from.locator('#folder-input').setInputFiles(backupFolder); await from.locator('#user-files button').filter({hasText:'shared.md'}).click();
   await from.locator('.katex').waitFor(); await from.locator('.mermaid-container svg').waitFor(); const backupOffset=await at(from,'備份接續');
   const download=from.waitForEvent('download'); await from.locator('#backup-library').click(); const archive=path.join(temporary,'backup.inkread'); await (await download).saveAs(archive);
-  targetContext=await setup(await chromium.launchPersistentContext(path.join(temporary,'profile'),{...options,viewport:{width:1440,height:900}}));
+  targetContext=await setup(await browserType.launchPersistentContext(path.join(temporary,'profile'),{...options,viewport:{width:1440,height:900}}));
   let page=await targetContext.newPage(); await page.goto(targetURL); await page.locator('#offline-status[data-state=ready]').waitFor();
   await page.locator('#folder-input').setInputFiles(currentFolder); await page.locator('#user-files button').filter({hasText:'only-current.md'}).click();
   const uniqueOffset=await at(page,'原有接續');
   await page.locator('#user-files button').filter({hasText:'shared.md'}).click(); let currentOffset=await at(page,'目前接續');
-  let before=await rows(page); await targetContext.setOffline(true);
+  let before=await rows(page); await offline(targetContext);
   // Select a backup in the same event as a layout change, before ResizeObserver.
   currentOffset=await page.evaluate(bytes=>{
     document.querySelector('.offline-state').style.minHeight='100px';
@@ -184,7 +199,7 @@ try {
   await preview(page,archive); await choose(page);
   const other=await targetContext.newPage(); await other.goto(targetURL); await other.locator('#app:not([hidden])').waitFor();
   await other.locator('#file-input').setInputFiles({name:'other-tab.md',mimeType:'text/markdown',buffer:Buffer.from('# 其他分頁的新文件')}); await saved(other);
-  await page.locator('#restore-confirm').click(); await page.locator('#restore-error').filter({hasText:'其他分頁已更新文件庫'}).waitFor();
+  await page.locator('#restore-confirm').click(browserName==='firefox' ? {position:{x:12,y:12}} : {}); await page.locator('#restore-error').filter({hasText:'其他分頁已更新文件庫'}).waitFor();
   assert.equal(await page.locator('#restore-confirm').isDisabled(),true); assert((await rows(page)).documents.some(d=>d.path==='other-tab.md'));
   await choose(page); await confirm(page); assert.equal((await rows(page)).documents.length,4);
   await other.close();
@@ -192,18 +207,18 @@ try {
 
   await preview(page,archive); await choose(page,'backup'); before=await rows(page);
   await page.evaluate(()=>{window.__mergeClear=IDBObjectStore.prototype.clear;IDBObjectStore.prototype.clear=function(...args){const r=window.__mergeClear.apply(this,args);if(this.name==='documents')this.transaction.abort();return r;};});
-  await page.locator('#restore-confirm').click(); await page.locator('#restore-error').filter({hasText:'原文件庫仍保留'}).waitFor();
+  await page.locator('#restore-confirm').click(browserName==='firefox' ? {position:{x:12,y:12}} : {}); await page.locator('#restore-error').filter({hasText:'原文件庫仍保留'}).waitFor();
   assert.deepEqual((await rows(page)).documents,before.documents); assert.deepEqual((await rows(page)).assets,before.assets);
   await page.evaluate(()=>{IDBObjectStore.prototype.clear=window.__mergeClear;}); await confirm(page);
   pass('Failed merge transactions roll back all changes and can retry with the selected versions intact');
 
   await page.locator('#user-files button').filter({hasText:'only-current.md'}).click(); await resumed(page,'原有接續',uniqueOffset); await saved(page);
   await targetContext.close(); targetContext=undefined;
-  targetContext=await setup(await chromium.launchPersistentContext(path.join(temporary,'profile'),{...options,viewport:{width:1440,height:900}})); await targetContext.setOffline(true);
+  targetContext=await setup(await browserType.launchPersistentContext(path.join(temporary,'profile'),{...options,viewport:{width:1440,height:900}})); await offline(targetContext);
   page=await targetContext.newPage(); await page.goto(targetURL+'?merged-restart=1'); await resumed(page,'原有接續',uniqueOffset);
   assert.equal(await page.locator('#user-files button').count(),4); assert.equal(await page.locator('#document img[src^="blob:"]').evaluate(img=>img.complete && img.naturalWidth>0),true);
   await page.locator('#user-files button').filter({hasText:'shared.md'}).click(); await resumed(page,'備份接續',backupOffset); await page.locator('.katex').waitFor(); await page.locator('.mermaid-container svg').waitFor();
-  pass('Offline browser restart preserves the merged library and both chosen and untouched reading positions');
+  pass('Persistent profile reopening preserves the merged library and both chosen and untouched reading positions');
 
   await page.evaluate(()=>{document.querySelector('.offline-state').style.minHeight='';});
   await page.setViewportSize({width:390,height:844}); await page.waitForTimeout(1200); await saved(page);
@@ -216,11 +231,12 @@ try {
   await page.locator('#restore-cancel').click();
   pass('Mobile conflict choices remain usable; switching modes preserves explicit choices and replacement is clearly labeled');
 
-  bothContext=await setup(await chromium.launchPersistentContext(path.join(temporary,'both-profile'),{...options,viewport:{width:1440,height:900},acceptDownloads:true}));
+  serverUnavailable=false;
+  bothContext=await setup(await browserType.launchPersistentContext(path.join(temporary,'both-profile'),{...options,viewport:{width:1440,height:900},acceptDownloads:true}));
   let bothPage=await bothContext.newPage(); await bothPage.goto(targetURL); await bothPage.locator('#offline-status[data-state=ready]').waitFor();
   // A fresh browser profile must keep its two versions independent, even offline.
   await bothPage.locator('#folder-input').setInputFiles(currentFolder); await bothPage.locator('#user-files button').filter({hasText:'shared.md'}).click();
-  const bothCurrentOffset=await at(bothPage,'目前接續'); await bothContext.setOffline(true);
+  const bothCurrentOffset=await at(bothPage,'目前接續'); await offline(bothContext);
   await preview(bothPage,archive); await choice(bothPage,'documents','shared.md').selectOption('both');
   assert.equal(await choice(bothPage,'assets','picture.svg').inputValue(),'both'); assert.equal(await choice(bothPage,'assets','picture.svg').isDisabled(),true);
   assert.match(await bothPage.locator('#restore-result').textContent(),/shared \(備份 1\)\.md/); assert.equal(await bothPage.locator('#restore-confirm').isEnabled(),true);
@@ -243,33 +259,62 @@ try {
   await resumed(bothPage,'備份接續',bothBackupOffset);
   pass('Keep both previews automatic names and restores separate document images, reference links and both original progress values');
 
-  const bothDownload=bothPage.waitForEvent('download'); await bothPage.locator('#backup-library').click(); const bothArchive=path.join(temporary,'both.inkread'); await (await bothDownload).saveAs(bothArchive);
-  const decodedBoth=await decodeBackup(new Blob([await readFile(bothArchive)]));
-  assert.equal(resolveDocumentPath(decodedBoth.documents.find(d=>d.path==='books/shared (備份 1).md'),'picture.svg'),'books/picture (備份 1).svg');
   await bothContext.close(); bothContext=undefined;
-  bothContext=await setup(await chromium.launchPersistentContext(path.join(temporary,'both-profile'),{...options,viewport:{width:1440,height:900}})); await bothContext.setOffline(true);
+  bothContext=await setup(await browserType.launchPersistentContext(path.join(temporary,'both-profile'),{...options,viewport:{width:1440,height:900}})); await offline(bothContext);
   bothPage=await bothContext.newPage(); await bothPage.goto(targetURL+'?both-restart=1'); await resumed(bothPage,'備份接續',bothBackupOffset); await assertImage(bothPage,'red');
   await bothPage.locator('#user-files button').filter({hasText:'shared.md'}).click(); await resumed(bothPage,'目前接續',bothCurrentOffset); await assertImage(bothPage,'green');
+  // Export after IndexedDB reopens, so format 2 exercises the same regression
+  // as format 1 before transferring the actual download into a fresh profile.
+  const bothDownload=bothPage.waitForEvent('download'); await bothPage.locator('#backup-library').click(); const bothArchive=path.join(temporary,'both.inkread'); await (await bothDownload).saveAs(bothArchive);
+  const bothBytes=await readFile(bothArchive);
+  assert.equal(JSON.parse(bothBytes.subarray(44,44+bothBytes.readUInt32LE(8))).version,2);
+  const decodedBoth=await decodeBackup(new Blob([bothBytes]));
+  assert.equal(resolveDocumentPath(decodedBoth.documents.find(d=>d.path==='books/shared (備份 1).md'),'picture.svg'),'books/picture (備份 1).svg');
   await preview(bothPage,archive); await choose(bothPage); await choice(bothPage,'documents','shared.md').selectOption('both'); await confirm(bothPage);
   assert((await rows(bothPage)).documents.some(d=>d.path==='books/shared (備份 2).md'));
-  pass('Offline restart and another merge keep both copies independent; re-exported backups preserve local link mappings');
+  pass('Persistent profile restart and another merge keep both copies independent; re-exported backups preserve local link mappings');
 
+  if (!compatibility) {
   localContext=await setup(await browser.newContext({serviceWorkers:'block',viewport:{width:1440,height:900}})); await localContext.setOffline(true);
   const local=await localContext.newPage(); await local.goto(pathToFileURL(path.join(root,'dist/index.html')).href); await local.locator('#app:not([hidden])').waitFor();
   await local.locator('#folder-input').setInputFiles(currentFolder); await saved(local); await preview(local,archive); await choose(local); await confirm(local);
   assert.equal(await local.locator('#user-files button').count(),3); assert.equal((await rows(local)).assets.find(a=>a.path==='books/picture.svg').text,image('green'));
   pass('The file:// version merges the same backup completely offline while keeping existing conflicting images');
 
+  } else {
+    // Reuse the exact keep-both archive in a fresh HTTP profile, with no seed data.
+    serverUnavailable=false;
+    localContext=await setup(await libraryContext(browser,path.join(temporary,'roundtrip-profile'),options,{viewport:{width:1440,height:900},acceptDownloads:true}));
+  }
+  const transferred=compatibility ? await localContext.newPage() : localContext.pages()[0];
+  if (compatibility) { await transferred.goto(targetURL); await transferred.locator('#offline-status[data-state=ready]').waitFor(); await offline(localContext); }
+  const local=transferred;
   await preview(local,bothArchive); await local.locator('#restore-mode').selectOption('replace'); await confirm(local);
   assert.equal((await rows(local)).documents.length,4);
   await local.locator('#user-files button').filter({hasText:'shared (備份 1).md'}).click(); await resumed(local,'備份接續',bothBackupOffset); await assertImage(local,'red');
   await local.locator('#user-files button').filter({hasText:'shared.md'}).click(); await resumed(local,'目前接續',bothCurrentOffset); await assertImage(local,'green');
   await local.locator('#user-files button').filter({hasText:'only-backup.md'}).click(); await local.getByRole('link',{name:'備份同名文件',exact:true}).click();
   await local.getByRole('heading',{name:'備份共用文件',exact:true}).waitFor(); await assertImage(local,'red');
-  pass('A backup with both copies transfers to a fresh file:// library with its independent images, document links and reading progress');
+  const restored=await rows(local);
+  assert.equal(restored.documents.length,decodedBoth.documents.length);
+  const portableDocuments=docs=>docs.map(d=>({path:d.path,source:d.source,pasted:d.pasted,...documentLinks(d)})).sort((a,b)=>a.path.localeCompare(b.path));
+  assert.deepEqual(portableDocuments(restored.documents),portableDocuments(decodedBoth.documents));
+  assert.deepEqual(restored.assets.map(a=>({path:a.path,text:a.text})).sort((a,b)=>a.path.localeCompare(b.path)),await Promise.all(decodedBoth.assets.map(async a=>({path:a.path,text:await a.blob.text()}))).then(a=>a.sort((a,b)=>a.path.localeCompare(b.path))));
+  pass(`A format 2 backup transfers to a fresh ${compatibility ? 'HTTP' : 'file://'} library with independent images, document links and progress`);
 
-  assert.deepEqual(errors,[]); await writeFile(path.join(output,'merge-results.json'),JSON.stringify({checks:results,total:results.length,uncaughtErrors:errors},null,2));
+  assert.deepEqual(errors,[]); await writeFile(path.join(output,'merge-results.json'),JSON.stringify({browser:browserName,engineVersion:browser.version(),compatibility,offlineMethod:compatibility ? 'HTTP 503 at real origin (not network-disconnect emulation)' : 'context.setOffline',checks:results,total:results.length,uncaughtErrors:errors},null,2));
   console.log(`\n${results.length} library merge checks passed.`);
+} catch(error) {
+  await writeFile(path.join(output,'merge-failure.json'),JSON.stringify({browser:browserName,completed:results,error:error.stack},null,2));
+  for (const [index,ctx] of [localContext,bothContext,targetContext,sourceContext].entries()) {
+    for (const [tab,page] of (ctx?.pages() || []).entries()) if (!page.isClosed()) {
+      await page.screenshot({path:path.join(output,`merge-failure-${index}-${tab}.png`)}).catch(()=>{});
+      const diagnostic=await page.evaluate(()=>({url:location.href,y:scrollY,status:document.getElementById('library-status')?.outerHTML,offline:document.getElementById('offline-status')?.outerHTML,errors:window.__storageErrors,transactions:window.__transactions,geometry:['restore-dialog','restore-confirm','library-status'].map(id=>{const el=document.getElementById(id),r=el?.getBoundingClientRect();return {id,rect:r?.toJSON(),hit:r ? document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.outerHTML.slice(0,500) : null};})})).catch(e=>({error:e.message}));
+      await writeFile(path.join(output,`merge-failure-${index}-${tab}.json`),JSON.stringify(diagnostic,null,2));
+      console.error('Browser failure diagnostic:',JSON.stringify(diagnostic));
+    }
+  }
+  throw error;
 } finally {
   await localContext?.close(); await sourceContext?.close(); await targetContext?.close(); await bothContext?.close(); await browser?.close(); await server.close();
   if (!path.resolve(temporary).startsWith(output+path.sep)) throw new Error('Unsafe temporary path'); await rm(temporary,{recursive:true,force:true});

@@ -34,8 +34,13 @@ export async function encodeBackup(snapshot) {
     if (!validPath(asset.path) || !mimeTypes[asset.path.split('.').pop().toLowerCase()] || seen.has(asset.path) || !(asset.blob instanceof Blob) || asset.blob.size>MAX_IMAGE_BYTES) invalid();
     seen.add(asset.path); assetTotal+=asset.blob.size;
     if (assetTotal>MAX_ASSET_BYTES) invalid();
-    assets.push({path:asset.path,size:asset.blob.size,sha256:hex(await digest(asset.blob))});
-    chunks.push(asset.blob);
+    // Restored images can be file-backed slices in IndexedDB. After reopening,
+    // WebKit can concatenate the whole backing archive instead of the slice.
+    // Materialize one image at a time so the archive includes exactly its bytes.
+    const bytes=await asset.blob.arrayBuffer();
+    if (bytes.byteLength!==asset.blob.size) invalid();
+    assets.push({path:asset.path,size:bytes.byteLength,sha256:hex(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)))});
+    chunks.push(new Blob([bytes],{type:asset.blob.type}));
   }
   const paths=new Set(documents.map(doc=>doc.path));
   const version=documents.some(doc=>doc.linkBase!==undefined) ? 2 : 1;
@@ -82,11 +87,14 @@ export async function decodeBackup(file) {
   const documents=[],assets=[];
   for (const {row,images,type,start} of entries) {
     const blob=file.slice(start,start+row.size,images ? type : 'text/plain');
-    if (hex(await digest(blob))!==row.sha256) invalid();
-    if (images) assets.push({path:row.path,blob});
+    const bytes=await blob.arrayBuffer();
+    if (hex(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)))!==row.sha256) invalid();
+    // Persist standalone verified image bytes, not a slice of the input archive.
+    // WebKit can lose file-backed slice bounds when IndexedDB is reopened.
+    if (images) assets.push({path:row.path,blob:new Blob([bytes],{type})});
     else {
       let source;
-      try { source=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(await blob.arrayBuffer()); } catch { invalid(); }
+      try { source=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(bytes); } catch { invalid(); }
       if (manifest.version===1 && (row.linkBase!==undefined || row.linkTargets!==undefined)) invalid();
       documents.push({path:row.path,source,bytes:row.size,pasted:row.pasted,...documentLinks(row)});
     }
