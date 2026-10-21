@@ -1,4 +1,4 @@
-import {chromium} from 'playwright-core';
+import {browserType,compatibility,browserName,checkExamples,probeFileOrigin} from './browser-compat.mjs';
 import assert from 'node:assert/strict';
 import {mkdir,mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
 import path from 'node:path';
@@ -6,7 +6,7 @@ import {fileURLToPath,pathToFileURL} from 'node:url';
 import {encodeBackup,decodeBackup,MAX_BACKUP_BYTES} from '../src/library-backup.js';
 import {serveSites} from './site-server.mjs';
 
-const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),output=path.join(root,'test-results');
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),output=path.join(root,'test-results',...(compatibility ? [browserName] : []));
 await mkdir(output,{recursive:true});
 await rm(path.join(output,'backup-failure.json'),{force:true});
 const temporary=await mkdtemp(path.join(output,'backup-test-'));
@@ -45,9 +45,14 @@ const source='# 跨裝置文件\n\n![圖片](assets/picture.svg)\n\n![遠端](ht
 await writeFile(path.join(fixture,'book.md'),source);
 await writeFile(path.join(fixture,'second.md'),'# 第二份文件\n\n## 開頭\n\n'+paragraphs+'## 第二份接續\n\n'+paragraphs);
 await writeFile(path.join(fixture,'assets/picture.svg'),'<svg xmlns="http://www.w3.org/2000/svg" width="600" height="120"><rect width="600" height="120" fill="#23705d"/></svg>');
-const server=await serveSites({source:path.join(root,'dist'),target:path.join(root,'dist')});
+let serverUnavailable=false;
+const server=await serveSites({source:path.join(root,'dist'),target:path.join(root,'dist')},{intercept:()=>serverUnavailable ? {status:503,body:'Compatibility test: server unavailable'} : undefined});
+// WebKit offline emulation can reject SW-served navigation (Playwright #42775).
+// Fail the real origin instead; unlike setOffline this verifies cache-only reopening
+// without claiming an OS/network disconnect in the compatibility jobs.
+async function offline(ctx) { if (compatibility) serverUnavailable=true; else await ctx.setOffline(true); }
 const sourceURL=server.origin+'/source/',targetURL=server.origin+'/target/';
-const options={executablePath:process.env.CHROMIUM_PATH || undefined,headless:true};
+const options={executablePath:!compatibility ? process.env.CHROMIUM_PATH || undefined : undefined,headless:true};
 let browser,donor,receiver,local;
 async function setup(ctx) {
   ctx.setDefaultTimeout(30000);
@@ -86,7 +91,7 @@ async function rows(page) {
   });
 }
 try {
-  browser=await chromium.launch(options);
+  browser=await browserType.launch(options);
   donor=await setup(await browser.newContext({viewport:{width:1440,height:900},acceptDownloads:true}));
   const from=await donor.newPage(); await from.goto(sourceURL); await from.locator('#app:not([hidden])').waitFor();
   await from.locator('#folder-input').setInputFiles(fixture);
@@ -99,13 +104,15 @@ try {
   await from.locator('.katex').waitFor(); await from.locator('.mermaid-container svg').waitFor();
   const readerOffset=await offset(from,'接續閱讀');
   const archive=path.join(temporary,'library.inkread'); await backup(from,archive);
-  const content=await decodeBackup(new Blob([await readFile(archive)]));
+  const archiveBytes=await readFile(archive);
+  assert.equal(JSON.parse(archiveBytes.subarray(44,44+archiveBytes.readUInt32LE(8))).version,1);
+  const content=await decodeBackup(new Blob([archiveBytes]));
   assert.equal(content.documents.length,2); assert.equal(content.assets.length,1); assert.equal(content.positions.length,2);
   assert.equal(content.current.endsWith('/book.md'),true);
-  receiver=await setup(await chromium.launchPersistentContext(path.join(temporary,'profile'),{...options,viewport:{width:1440,height:900},acceptDownloads:true}));
+  receiver=await setup(await browserType.launchPersistentContext(path.join(temporary,'profile'),{...options,viewport:{width:1440,height:900},acceptDownloads:true}));
   let page=await receiver.newPage(); await page.goto(targetURL); await page.locator('#offline-status[data-state=ready]').waitFor();
   await open(page,'keep.md','# 原文件庫仍保留');
-  await receiver.setOffline(true);
+  await offline(receiver);
   await preview(page,archive); assert((await page.locator('#restore-summary').textContent()).includes('2 份文件'));
   await page.locator('#restore-cancel').click(); await saved(page);
   assert.equal((await rows(page)).documents[0].path,'keep.md');
@@ -149,14 +156,14 @@ try {
   await page.locator('#document a').filter({hasText:'下一份'}).evaluate(el=>el.click());
   await positionRestored(page,'第二份接續',secondOffset);
   await page.locator('#user-files button').filter({hasText:'book.md'}).click(); await positionRestored(page,'接續閱讀',readerOffset);
-  pass('Offline cross-profile and cross-URL restore preserves links, images, formulas, diagrams and per-document progress safely');
+  pass('Cross-profile and cross-URL restore preserves links, images, formulas, diagrams and per-document progress safely');
 
   await receiver.close(); receiver=undefined;
-  receiver=await setup(await chromium.launchPersistentContext(path.join(temporary,'profile'),{...options,viewport:{width:1440,height:900},acceptDownloads:true}));
-  await receiver.setOffline(true); page=await receiver.newPage(); await page.goto(targetURL+'?reopened=1');
+  receiver=await setup(await browserType.launchPersistentContext(path.join(temporary,'profile'),{...options,viewport:{width:1440,height:900},acceptDownloads:true}));
+  await offline(receiver); page=await receiver.newPage(); await page.goto(targetURL+'?reopened=1');
   await positionRestored(page,'接續閱讀',readerOffset);
   await page.locator('.katex').waitFor(); await page.locator('.mermaid-container svg').waitFor();
-  pass('A browser restart offline restores the transferred library without reimporting the backup');
+  pass(compatibility ? 'Persistent profile reopens the transferred library with its origin returning HTTP 503' : 'A browser restart offline restores the transferred library without reimporting the backup');
 
   const secondArchive=path.join(temporary,'second.inkread'); await backup(page,secondArchive);
   const again=await decodeBackup(new Blob([await readFile(secondArchive)]));
@@ -171,6 +178,11 @@ try {
   await page.screenshot({path:path.join(output,'backup-mobile.png')});
   pass('A restored library can be backed up again; transfer controls remain accessible on mobile');
 
+  if (compatibility) {
+    await checkExamples(page,output,archive);
+    pass('Collapsed examples, search expansion and mobile restore cancellation preserve the document list');
+    await probeFileOrigin(browser,path.join(root,'dist/index.html'),output);
+  } else {
   local=await setup(await browser.newContext({serviceWorkers:'block',viewport:{width:1440,height:900},acceptDownloads:true}));
   await local.setOffline(true); const filePage=await local.newPage(); await filePage.goto(pathToFileURL(path.join(root,'dist/index.html')).href);
   await filePage.locator('#app:not([hidden])').waitFor(); await preview(filePage,archive);
@@ -181,9 +193,17 @@ try {
   assert.equal((await decodeBackup(new Blob([await readFile(localArchive)]))).documents.length,2);
   pass('The extracted file:// app restores and exports the same portable backup fully offline');
 
+  }
   assert.deepEqual(errors,[]);
-  await writeFile(path.join(output,'backup-results.json'),JSON.stringify({checks:results,total:results.length,uncaughtErrors:errors},null,2));
+  await writeFile(path.join(output,'backup-results.json'),JSON.stringify({browser:browserName,compatibility,offlineMethod:compatibility ? 'HTTP 503 at real origin (not network-disconnect emulation)' : 'context.setOffline',checks:results,total:results.length,uncaughtErrors:errors},null,2));
   console.log(`\n${results.length} backup and restore checks passed.`);
+} catch(error) {
+  await writeFile(path.join(output,'backup-failure.json'),JSON.stringify({browser:browserName,completed:results,error:error.stack},null,2));
+  for (const ctx of [receiver,donor]) {
+    const page=ctx?.pages().at(-1);
+    if (page && !page.isClosed()) await page.screenshot({path:path.join(output,'backup-failure.png')}).catch(()=>{});
+  }
+  throw error;
 } finally {
   await local?.close(); await donor?.close(); await receiver?.close(); await browser?.close(); await server.close();
   if (!path.resolve(temporary).startsWith(output+path.sep)) throw new Error('Unsafe temporary path');

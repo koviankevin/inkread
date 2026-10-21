@@ -11,6 +11,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "test": "node tests/verify.mjs && node tests/audit.mjs && node tests/lazy-features.mjs && node tests/offline-cache.mjs && node tests/library.mjs && node tests/backup.mjs && node tests/merge.mjs",
+    "test:compat": "node tests/backup.mjs && node tests/merge.mjs",
     "benchmark:startup": "node tests/startup.mjs",
     "dev": "python3 -m http.server 4173 --directory dist"
   },
