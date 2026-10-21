@@ -57,15 +57,7 @@ let browser,donor,receiver,local;
 async function setup(ctx) {
   ctx.setDefaultTimeout(30000);
   await ctx.addInitScript(()=>{
-    window.__storageErrors=[]; window.__transactions={started:0,completed:0}; window.__libraryStates=[];
-    addEventListener('DOMContentLoaded',()=>{
-      const status=document.getElementById('library-status');
-      if(status) new MutationObserver(()=>{
-        const bar=document.querySelector('.offline-state'),article=document.getElementById('document');
-        window.__libraryStates.push({time:Date.now(),state:status.dataset.state,y:scrollY,height:document.documentElement.scrollHeight,bar:bar.getBoundingClientRect().toJSON(),article:article.getBoundingClientRect().toJSON()});
-        if(window.__libraryStates.length>12) window.__libraryStates.shift();
-      }).observe(status,{attributes:true,childList:true});
-    });
+    window.__storageErrors=[]; window.__transactions={started:0,completed:0};
     const transaction=IDBDatabase.prototype.transaction;
     IDBDatabase.prototype.transaction=function(...args) {
       try { const tx=transaction.apply(this,args); window.__transactions.started++; tx.addEventListener('complete',()=>window.__transactions.completed++); tx.addEventListener('abort',()=>window.__storageErrors.push(String(tx.error))); return tx; }
@@ -79,8 +71,25 @@ async function setup(ctx) {
 const saved=page=>page.locator('#library-status[data-state=saved]').waitFor();
 async function open(page,name,source) { await page.locator('#file-input').setInputFiles({name,mimeType:'text/markdown',buffer:Buffer.from(source)}); await saved(page); }
 async function backup(page,filename) {
-  const download=page.waitForEvent('download'); await page.locator('#backup-library').click();
-  const item=await download; assert(item.suggestedFilename().endsWith('.inkread')); await item.saveAs(filename); await saved(page);
+  if (compatibility) await page.evaluate(()=>{
+    window.__backupObjectURL=URL.createObjectURL;
+    URL.createObjectURL=function(blob) {if(blob.type==='application/octet-stream') window.__downloadBlob=blob; return window.__backupObjectURL.call(this,blob);};
+  });
+  try {
+    const download=page.waitForEvent('download'); await page.locator('#backup-library').click();
+    const item=await download; assert(item.suggestedFilename().endsWith('.inkread')); await item.saveAs(filename); await saved(page);
+    if (compatibility) {
+      const bytes=await readFile(filename),memory=Buffer.from(await page.evaluate(async()=>Array.from(new Uint8Array(await window.__downloadBlob.arrayBuffer()))));
+      const manifest=JSON.parse(bytes.subarray(44,44+bytes.readUInt32LE(8)));
+      const expectedSize=44+bytes.readUInt32LE(8)+[...manifest.documents,...manifest.assets].reduce((n,row)=>n+row.size,0);
+      await writeFile(path.join(output,path.basename(filename)),bytes);
+      await writeFile(path.join(output,path.basename(filename)+'.json'),JSON.stringify({downloaded:bytes.length,inMemory:memory.length,expectedSize,manifest,stored:await rows(page)},null,2));
+      console.log('Backup byte sizes:',JSON.stringify({filename:path.basename(filename),downloaded:bytes.length,inMemory:memory.length,expectedSize}));
+      assert.deepEqual(bytes,memory,'Downloaded bytes must match the actual browser-generated Blob');
+    }
+  } finally {
+    if(compatibility) await page.evaluate(()=>{URL.createObjectURL=window.__backupObjectURL;delete window.__downloadBlob;});
+  }
 }
 async function preview(page,file) { await page.locator('#backup-input').setInputFiles(file); await page.locator('#restore-dialog').waitFor({state:'visible'}); await page.locator('#restore-mode').selectOption('replace'); }
 async function offset(page,name,amount=120) {
@@ -93,7 +102,7 @@ async function positionRestored(page,name,amount) {
     const el=[...document.querySelectorAll('#document h2')].find(el=>el.textContent===name);
     return el && Math.abs(el.getBoundingClientRect().top+amount)<8;
   },{name,amount}); } catch(error) {
-    await writeFile(path.join(output,'backup-failure.json'),JSON.stringify({name,amount,stored:await rows(page),page:await page.evaluate(()=>({visibility:document.visibilityState,y:scrollY,status:document.getElementById('library-status').textContent,headings:[...document.querySelectorAll('#document h2')].map(el=>({text:el.textContent,top:el.getBoundingClientRect().top}))}))},null,2));
+    await writeFile(path.join(output,'backup-progress-failure.json'),JSON.stringify({name,amount,stored:await rows(page),page:await page.evaluate(()=>({visibility:document.visibilityState,y:scrollY,status:document.getElementById('library-status').textContent,headings:[...document.querySelectorAll('#document h2')].map(el=>({text:el.textContent,top:el.getBoundingClientRect().top}))}))},null,2));
     throw error;
   } await saved(page);
 }
@@ -219,14 +228,14 @@ try {
 
   }
   assert.deepEqual(errors,[]);
-  await writeFile(path.join(output,'backup-results.json'),JSON.stringify({browser:browserName,compatibility,offlineMethod:compatibility ? 'HTTP 503 at real origin (not network-disconnect emulation)' : 'context.setOffline',checks:results,total:results.length,uncaughtErrors:errors},null,2));
+  await writeFile(path.join(output,'backup-results.json'),JSON.stringify({browser:browserName,engineVersion:browser.version(),compatibility,offlineMethod:compatibility ? 'HTTP 503 at real origin (not network-disconnect emulation)' : 'context.setOffline',checks:results,total:results.length,uncaughtErrors:errors},null,2));
   console.log(`\n${results.length} backup and restore checks passed.`);
 } catch(error) {
   await writeFile(path.join(output,'backup-failure.json'),JSON.stringify({browser:browserName,completed:results,error:error.stack},null,2));
   for (const [index,ctx] of [receiver,donor].entries()) {
     for (const [tab,page] of (ctx?.pages() || []).entries()) if (!page.isClosed()) {
       await page.screenshot({path:path.join(output,`backup-failure-${index}-${tab}.png`)}).catch(()=>{});
-      const diagnostic=await page.evaluate(()=>({url:location.href,y:scrollY,status:document.getElementById('library-status')?.outerHTML,offline:document.getElementById('offline-status')?.outerHTML,errors:window.__storageErrors,transactions:window.__transactions,states:window.__libraryStates,geometry:['restore-dialog','restore-confirm','library-status'].map(id=>{const el=document.getElementById(id),r=el?.getBoundingClientRect();return {id,rect:r?.toJSON(),hit:r ? document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.outerHTML.slice(0,500) : null};})})).catch(e=>({error:e.message}));
+      const diagnostic=await page.evaluate(()=>({url:location.href,y:scrollY,status:document.getElementById('library-status')?.outerHTML,offline:document.getElementById('offline-status')?.outerHTML,errors:window.__storageErrors,transactions:window.__transactions,geometry:['restore-dialog','restore-confirm','library-status'].map(id=>{const el=document.getElementById(id),r=el?.getBoundingClientRect();return {id,rect:r?.toJSON(),hit:r ? document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.outerHTML.slice(0,500) : null};})})).catch(e=>({error:e.message}));
       await writeFile(path.join(output,`backup-failure-${index}-${tab}.json`),JSON.stringify(diagnostic,null,2));
       console.error('Browser failure diagnostic:',JSON.stringify(diagnostic));
     }

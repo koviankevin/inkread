@@ -103,15 +103,7 @@ let browser,sourceContext,targetContext,localContext,bothContext;
 async function setup(ctx) {
   ctx.setDefaultTimeout(30000);
   await ctx.addInitScript(()=>{
-    window.__storageErrors=[]; window.__transactions={started:0,completed:0}; window.__libraryStates=[];
-    addEventListener('DOMContentLoaded',()=>{
-      const status=document.getElementById('library-status');
-      if(status) new MutationObserver(()=>{
-        const bar=document.querySelector('.offline-state'),article=document.getElementById('document');
-        window.__libraryStates.push({time:Date.now(),state:status.dataset.state,y:scrollY,height:document.documentElement.scrollHeight,bar:bar.getBoundingClientRect().toJSON(),article:article.getBoundingClientRect().toJSON()});
-        if(window.__libraryStates.length>12) window.__libraryStates.shift();
-      }).observe(status,{attributes:true,childList:true});
-    });
+    window.__storageErrors=[]; window.__transactions={started:0,completed:0};
     const transaction=IDBDatabase.prototype.transaction;
     IDBDatabase.prototype.transaction=function(...args) {
       try { const tx=transaction.apply(this,args); window.__transactions.started++; tx.addEventListener('complete',()=>window.__transactions.completed++); tx.addEventListener('abort',()=>window.__storageErrors.push(String(tx.error))); return tx; }
@@ -308,14 +300,14 @@ try {
   assert.deepEqual(restored.assets.map(a=>({path:a.path,text:a.text})).sort((a,b)=>a.path.localeCompare(b.path)),await Promise.all(decodedBoth.assets.map(async a=>({path:a.path,text:await a.blob.text()}))).then(a=>a.sort((a,b)=>a.path.localeCompare(b.path))));
   pass(`A format 2 backup transfers to a fresh ${compatibility ? 'HTTP' : 'file://'} library with independent images, document links and progress`);
 
-  assert.deepEqual(errors,[]); await writeFile(path.join(output,'merge-results.json'),JSON.stringify({browser:browserName,compatibility,offlineMethod:compatibility ? 'HTTP 503 at real origin (not network-disconnect emulation)' : 'context.setOffline',checks:results,total:results.length,uncaughtErrors:errors},null,2));
+  assert.deepEqual(errors,[]); await writeFile(path.join(output,'merge-results.json'),JSON.stringify({browser:browserName,engineVersion:browser.version(),compatibility,offlineMethod:compatibility ? 'HTTP 503 at real origin (not network-disconnect emulation)' : 'context.setOffline',checks:results,total:results.length,uncaughtErrors:errors},null,2));
   console.log(`\n${results.length} library merge checks passed.`);
 } catch(error) {
   await writeFile(path.join(output,'merge-failure.json'),JSON.stringify({browser:browserName,completed:results,error:error.stack},null,2));
   for (const [index,ctx] of [localContext,bothContext,targetContext,sourceContext].entries()) {
     for (const [tab,page] of (ctx?.pages() || []).entries()) if (!page.isClosed()) {
       await page.screenshot({path:path.join(output,`merge-failure-${index}-${tab}.png`)}).catch(()=>{});
-      const diagnostic=await page.evaluate(()=>({url:location.href,y:scrollY,status:document.getElementById('library-status')?.outerHTML,offline:document.getElementById('offline-status')?.outerHTML,errors:window.__storageErrors,transactions:window.__transactions,states:window.__libraryStates,geometry:['restore-dialog','restore-confirm','library-status'].map(id=>{const el=document.getElementById(id),r=el?.getBoundingClientRect();return {id,rect:r?.toJSON(),hit:r ? document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.outerHTML.slice(0,500) : null};})})).catch(e=>({error:e.message}));
+      const diagnostic=await page.evaluate(()=>({url:location.href,y:scrollY,status:document.getElementById('library-status')?.outerHTML,offline:document.getElementById('offline-status')?.outerHTML,errors:window.__storageErrors,transactions:window.__transactions,geometry:['restore-dialog','restore-confirm','library-status'].map(id=>{const el=document.getElementById(id),r=el?.getBoundingClientRect();return {id,rect:r?.toJSON(),hit:r ? document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.outerHTML.slice(0,500) : null};})})).catch(e=>({error:e.message}));
       await writeFile(path.join(output,`merge-failure-${index}-${tab}.json`),JSON.stringify(diagnostic,null,2));
       console.error('Browser failure diagnostic:',JSON.stringify(diagnostic));
     }

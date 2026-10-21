@@ -18,7 +18,6 @@ export async function libraryContext(browser,profile,launchOptions,contextOption
     : browser.newContext(contextOptions);
 }
 
-
 export async function checkExamples(page,output,archive) {
   const section=page.locator('#demo-section'),search=page.locator('#file-search');
   const names=await page.locator('#user-files button').allTextContents();
