@@ -12,6 +12,8 @@ concurrency:
 jobs:
   chromium:
     name: Chromium release regression
+    # Pages already runs the full Chromium suite for every main push.
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

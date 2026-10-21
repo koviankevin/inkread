@@ -21,8 +21,10 @@ Only the two library suites run in the Firefox/WebKit matrix; they do not repeat
 the general rendering, security, lazy-loading or cache-repair suites.
 
 The independent `compatibility.yml` runs on PRs, main and manual dispatch, with
-separate Firefox/WebKit jobs (12-minute ceiling, no fail-fast), plus the original
-full Chromium suite (15-minute ceiling). This workflow does not deploy. Its checks
+separate Firefox/WebKit jobs (12-minute ceiling, no fail-fast). The original full
+Chromium suite (15-minute ceiling) runs here on PRs and manual dispatch only;
+main pushes use the existing Pages build's Chromium acceptance, avoiding a second
+identical run. This workflow does not deploy. Its checks
 are additional CI signals; it does not change repository branch-protection rules
 or make Firefox/WebKit prerequisites of the existing Pages deployment.
 

@@ -259,15 +259,17 @@ try {
   await resumed(bothPage,'備份接續',bothBackupOffset);
   pass('Keep both previews automatic names and restores separate document images, reference links and both original progress values');
 
+  await bothContext.close(); bothContext=undefined;
+  bothContext=await setup(await browserType.launchPersistentContext(path.join(temporary,'both-profile'),{...options,viewport:{width:1440,height:900}})); await offline(bothContext);
+  bothPage=await bothContext.newPage(); await bothPage.goto(targetURL+'?both-restart=1'); await resumed(bothPage,'備份接續',bothBackupOffset); await assertImage(bothPage,'red');
+  await bothPage.locator('#user-files button').filter({hasText:'shared.md'}).click(); await resumed(bothPage,'目前接續',bothCurrentOffset); await assertImage(bothPage,'green');
+  // Export after IndexedDB reopens, so format 2 exercises the same regression
+  // as format 1 before transferring the actual download into a fresh profile.
   const bothDownload=bothPage.waitForEvent('download'); await bothPage.locator('#backup-library').click(); const bothArchive=path.join(temporary,'both.inkread'); await (await bothDownload).saveAs(bothArchive);
   const bothBytes=await readFile(bothArchive);
   assert.equal(JSON.parse(bothBytes.subarray(44,44+bothBytes.readUInt32LE(8))).version,2);
   const decodedBoth=await decodeBackup(new Blob([bothBytes]));
   assert.equal(resolveDocumentPath(decodedBoth.documents.find(d=>d.path==='books/shared (備份 1).md'),'picture.svg'),'books/picture (備份 1).svg');
-  await bothContext.close(); bothContext=undefined;
-  bothContext=await setup(await browserType.launchPersistentContext(path.join(temporary,'both-profile'),{...options,viewport:{width:1440,height:900}})); await offline(bothContext);
-  bothPage=await bothContext.newPage(); await bothPage.goto(targetURL+'?both-restart=1'); await resumed(bothPage,'備份接續',bothBackupOffset); await assertImage(bothPage,'red');
-  await bothPage.locator('#user-files button').filter({hasText:'shared.md'}).click(); await resumed(bothPage,'目前接續',bothCurrentOffset); await assertImage(bothPage,'green');
   await preview(bothPage,archive); await choose(bothPage); await choice(bothPage,'documents','shared.md').selectOption('both'); await confirm(bothPage);
   assert((await rows(bothPage)).documents.some(d=>d.path==='books/shared (備份 2).md'));
   pass('Persistent profile restart and another merge keep both copies independent; re-exported backups preserve local link mappings');
