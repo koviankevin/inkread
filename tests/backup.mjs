@@ -57,10 +57,18 @@ let browser,donor,receiver,local;
 async function setup(ctx) {
   ctx.setDefaultTimeout(30000);
   await ctx.addInitScript(()=>{
-    window.__storageErrors=[];
+    window.__storageErrors=[]; window.__transactions={started:0,completed:0}; window.__libraryStates=[];
+    addEventListener('DOMContentLoaded',()=>{
+      const status=document.getElementById('library-status');
+      if(status) new MutationObserver(()=>{
+        const bar=document.querySelector('.offline-state'),article=document.getElementById('document');
+        window.__libraryStates.push({time:Date.now(),state:status.dataset.state,y:scrollY,height:document.documentElement.scrollHeight,bar:bar.getBoundingClientRect().toJSON(),article:article.getBoundingClientRect().toJSON()});
+        if(window.__libraryStates.length>12) window.__libraryStates.shift();
+      }).observe(status,{attributes:true,childList:true});
+    });
     const transaction=IDBDatabase.prototype.transaction;
     IDBDatabase.prototype.transaction=function(...args) {
-      try { const tx=transaction.apply(this,args); tx.addEventListener('abort',()=>window.__storageErrors.push(String(tx.error))); return tx; }
+      try { const tx=transaction.apply(this,args); window.__transactions.started++; tx.addEventListener('complete',()=>window.__transactions.completed++); tx.addEventListener('abort',()=>window.__storageErrors.push(String(tx.error))); return tx; }
       catch(error) {window.__storageErrors.push(`${error.name}: ${error.message}`);throw error;}
     };
   });
@@ -218,7 +226,7 @@ try {
   for (const [index,ctx] of [receiver,donor].entries()) {
     for (const [tab,page] of (ctx?.pages() || []).entries()) if (!page.isClosed()) {
       await page.screenshot({path:path.join(output,`backup-failure-${index}-${tab}.png`)}).catch(()=>{});
-      const diagnostic=await page.evaluate(()=>({url:location.href,y:scrollY,status:document.getElementById('library-status')?.outerHTML,offline:document.getElementById('offline-status')?.outerHTML,errors:window.__storageErrors,geometry:['restore-dialog','restore-confirm','library-status'].map(id=>{const el=document.getElementById(id),r=el?.getBoundingClientRect();return {id,rect:r?.toJSON(),hit:r ? document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.outerHTML.slice(0,500) : null};})})).catch(e=>({error:e.message}));
+      const diagnostic=await page.evaluate(()=>({url:location.href,y:scrollY,status:document.getElementById('library-status')?.outerHTML,offline:document.getElementById('offline-status')?.outerHTML,errors:window.__storageErrors,transactions:window.__transactions,states:window.__libraryStates,geometry:['restore-dialog','restore-confirm','library-status'].map(id=>{const el=document.getElementById(id),r=el?.getBoundingClientRect();return {id,rect:r?.toJSON(),hit:r ? document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.outerHTML.slice(0,500) : null};})})).catch(e=>({error:e.message}));
       await writeFile(path.join(output,`backup-failure-${index}-${tab}.json`),JSON.stringify(diagnostic,null,2));
       console.error('Browser failure diagnostic:',JSON.stringify(diagnostic));
     }

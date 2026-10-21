@@ -103,10 +103,18 @@ let browser,sourceContext,targetContext,localContext,bothContext;
 async function setup(ctx) {
   ctx.setDefaultTimeout(30000);
   await ctx.addInitScript(()=>{
-    window.__storageErrors=[];
+    window.__storageErrors=[]; window.__transactions={started:0,completed:0}; window.__libraryStates=[];
+    addEventListener('DOMContentLoaded',()=>{
+      const status=document.getElementById('library-status');
+      if(status) new MutationObserver(()=>{
+        const bar=document.querySelector('.offline-state'),article=document.getElementById('document');
+        window.__libraryStates.push({time:Date.now(),state:status.dataset.state,y:scrollY,height:document.documentElement.scrollHeight,bar:bar.getBoundingClientRect().toJSON(),article:article.getBoundingClientRect().toJSON()});
+        if(window.__libraryStates.length>12) window.__libraryStates.shift();
+      }).observe(status,{attributes:true,childList:true});
+    });
     const transaction=IDBDatabase.prototype.transaction;
     IDBDatabase.prototype.transaction=function(...args) {
-      try { const tx=transaction.apply(this,args); tx.addEventListener('abort',()=>window.__storageErrors.push(String(tx.error))); return tx; }
+      try { const tx=transaction.apply(this,args); window.__transactions.started++; tx.addEventListener('complete',()=>window.__transactions.completed++); tx.addEventListener('abort',()=>window.__storageErrors.push(String(tx.error))); return tx; }
       catch(error) {window.__storageErrors.push(`${error.name}: ${error.message}`);throw error;}
     };
   });
@@ -117,7 +125,9 @@ const saved=page=>page.locator('#library-status[data-state=saved]').waitFor();
 async function preview(page,archive) { await page.locator('#backup-input').setInputFiles(archive); await page.locator('#restore-dialog').waitFor({state:'visible'}); assert.equal(await page.locator('#restore-mode').inputValue(),'merge'); }
 async function choose(page,value='existing') { for (const select of await page.locator('#restore-conflicts select').all()) await select.selectOption(value); }
 const choice=(page,kind,file)=>page.locator(`#restore-conflicts select[data-kind="${kind}"][data-path="books/${file}"]`);
-async function confirm(page) { await page.locator('#restore-confirm').click(); await page.locator('#restore-dialog').waitFor({state:'hidden'}); await saved(page); }
+// Firefox's default clickable quad can drift inside a scrolled native dialog.
+// Pick an explicit interior point, retaining Playwright visibility/hit-target checks.
+async function confirm(page) { await page.locator('#restore-confirm').click(browserName==='firefox' ? {position:{x:12,y:12}} : {}); await page.locator('#restore-dialog').waitFor({state:'hidden'}); await saved(page); }
 async function at(page,name,amount=120) {
   await saved(page);
   await page.getByRole('heading',{name,exact:true}).evaluate((el,y)=>window.scrollTo({top:el.getBoundingClientRect().top+scrollY+y,behavior:'instant'}),amount);
@@ -197,7 +207,7 @@ try {
   await preview(page,archive); await choose(page);
   const other=await targetContext.newPage(); await other.goto(targetURL); await other.locator('#app:not([hidden])').waitFor();
   await other.locator('#file-input').setInputFiles({name:'other-tab.md',mimeType:'text/markdown',buffer:Buffer.from('# 其他分頁的新文件')}); await saved(other);
-  await page.locator('#restore-confirm').click(); await page.locator('#restore-error').filter({hasText:'其他分頁已更新文件庫'}).waitFor();
+  await page.locator('#restore-confirm').click(browserName==='firefox' ? {position:{x:12,y:12}} : {}); await page.locator('#restore-error').filter({hasText:'其他分頁已更新文件庫'}).waitFor();
   assert.equal(await page.locator('#restore-confirm').isDisabled(),true); assert((await rows(page)).documents.some(d=>d.path==='other-tab.md'));
   await choose(page); await confirm(page); assert.equal((await rows(page)).documents.length,4);
   await other.close();
@@ -205,7 +215,7 @@ try {
 
   await preview(page,archive); await choose(page,'backup'); before=await rows(page);
   await page.evaluate(()=>{window.__mergeClear=IDBObjectStore.prototype.clear;IDBObjectStore.prototype.clear=function(...args){const r=window.__mergeClear.apply(this,args);if(this.name==='documents')this.transaction.abort();return r;};});
-  await page.locator('#restore-confirm').click(); await page.locator('#restore-error').filter({hasText:'原文件庫仍保留'}).waitFor();
+  await page.locator('#restore-confirm').click(browserName==='firefox' ? {position:{x:12,y:12}} : {}); await page.locator('#restore-error').filter({hasText:'原文件庫仍保留'}).waitFor();
   assert.deepEqual((await rows(page)).documents,before.documents); assert.deepEqual((await rows(page)).assets,before.assets);
   await page.evaluate(()=>{IDBObjectStore.prototype.clear=window.__mergeClear;}); await confirm(page);
   pass('Failed merge transactions roll back all changes and can retry with the selected versions intact');
@@ -305,7 +315,7 @@ try {
   for (const [index,ctx] of [localContext,bothContext,targetContext,sourceContext].entries()) {
     for (const [tab,page] of (ctx?.pages() || []).entries()) if (!page.isClosed()) {
       await page.screenshot({path:path.join(output,`merge-failure-${index}-${tab}.png`)}).catch(()=>{});
-      const diagnostic=await page.evaluate(()=>({url:location.href,y:scrollY,status:document.getElementById('library-status')?.outerHTML,offline:document.getElementById('offline-status')?.outerHTML,errors:window.__storageErrors,geometry:['restore-dialog','restore-confirm','library-status'].map(id=>{const el=document.getElementById(id),r=el?.getBoundingClientRect();return {id,rect:r?.toJSON(),hit:r ? document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.outerHTML.slice(0,500) : null};})})).catch(e=>({error:e.message}));
+      const diagnostic=await page.evaluate(()=>({url:location.href,y:scrollY,status:document.getElementById('library-status')?.outerHTML,offline:document.getElementById('offline-status')?.outerHTML,errors:window.__storageErrors,transactions:window.__transactions,states:window.__libraryStates,geometry:['restore-dialog','restore-confirm','library-status'].map(id=>{const el=document.getElementById(id),r=el?.getBoundingClientRect();return {id,rect:r?.toJSON(),hit:r ? document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.outerHTML.slice(0,500) : null};})})).catch(e=>({error:e.message}));
       await writeFile(path.join(output,`merge-failure-${index}-${tab}.json`),JSON.stringify(diagnostic,null,2));
       console.error('Browser failure diagnostic:',JSON.stringify(diagnostic));
     }
