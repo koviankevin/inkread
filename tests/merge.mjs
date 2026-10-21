@@ -1,4 +1,4 @@
-import {browserType,compatibility,browserName,checkExamples,probeFileOrigin} from './browser-compat.mjs';
+import {browserType,compatibility,browserName,checkExamples,probeFileOrigin,libraryContext} from './browser-compat.mjs';
 import assert from 'node:assert/strict';
 import {mkdir,mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
 import path from 'node:path';
@@ -154,7 +154,7 @@ async function rows(page) {
 }
 try {
   browser=await browserType.launch(options);
-  sourceContext=await setup(await browser.newContext({viewport:{width:1440,height:900},acceptDownloads:true}));
+  sourceContext=await setup(await libraryContext(browser,path.join(temporary,'donor-profile'),options,{viewport:{width:1440,height:900},acceptDownloads:true}));
   const from=await sourceContext.newPage(); await from.goto(sourceURL); await from.locator('#offline-status[data-state=ready]').waitFor();
   await from.locator('#folder-input').setInputFiles(backupFolder); await from.locator('#user-files button').filter({hasText:'shared.md'}).click();
   await from.locator('.katex').waitFor(); await from.locator('.mermaid-container svg').waitFor(); const backupOffset=await at(from,'備份接續');
@@ -290,7 +290,7 @@ try {
   } else {
     // Reuse the exact keep-both archive in a fresh HTTP profile, with no seed data.
     serverUnavailable=false;
-    localContext=await setup(await browser.newContext({viewport:{width:1440,height:900},acceptDownloads:true}));
+    localContext=await setup(await libraryContext(browser,path.join(temporary,'roundtrip-profile'),options,{viewport:{width:1440,height:900},acceptDownloads:true}));
   }
   const transferred=compatibility ? await localContext.newPage() : localContext.pages()[0];
   if (compatibility) { await transferred.goto(targetURL); await transferred.locator('#offline-status[data-state=ready]').waitFor(); await offline(localContext); }

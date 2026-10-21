@@ -54,7 +54,13 @@ JSON, failure diagnostics and screenshots are uploaded even on failure, for 7 da
   WebKit's offline-emulation navigation problem with app data loss; see
   [Playwright issue #42775](https://github.com/microsoft/playwright/issues/42775).
   Cache readiness is required; errors are not silently ignored.
-- **IndexedDB:** real transactions and image Blobs are tested on localhost (a
+- **IndexedDB:** WebKit uses fresh persistent profiles even for the donor and
+  second-transfer destination. Playwright WebKit ephemeral/private sessions cannot
+  persist image Blobs (upstream [#42795](https://github.com/microsoft/playwright/issues/42795));
+  the initial ephemeral-context run stalled on its first Blob transaction. This is
+  not worked around by bypassing IndexedDB or removing images. Normal-profile
+  transactions and image bytes must pass. Private-mode support remains unverified.
+  Real transactions and image Blobs are tested on localhost (a
   secure origin). Persistent-profile relaunch tests disk persistence. Private
   browsing, quota eviction, clearing site data and enterprise policies still need
   environment-specific acceptance. Tests never treat an HTTP storage failure as

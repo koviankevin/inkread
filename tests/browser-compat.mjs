@@ -10,6 +10,15 @@ assert(['chromium','firefox','webkit'].includes(browserName),'Unknown INKREAD_BR
 export const browserType={chromium,firefox,webkit}[browserName];
 export const compatibility=browserName!=='chromium';
 
+// WebKit ephemeral sessions cannot persist image Blobs (Playwright #42795).
+// Use an empty real profile, not mocked storage; every write/restore must succeed.
+export async function libraryContext(browser,profile,launchOptions,contextOptions) {
+  return browserName==='webkit'
+    ? browserType.launchPersistentContext(profile,{...launchOptions,...contextOptions})
+    : browser.newContext(contextOptions);
+}
+
+
 export async function checkExamples(page,output,archive) {
   const section=page.locator('#demo-section'),search=page.locator('#file-search');
   const names=await page.locator('#user-files button').allTextContents();
@@ -51,8 +60,8 @@ export async function checkExamples(page,output,archive) {
 
 // A diagnostic of the browser's local-file origin, separate from HTTP acceptance.
 // Missing platform APIs are reported as limitations, never counted as restore passes.
-export async function probeFileOrigin(browser,filename,output) {
-  const ctx=await browser.newContext({serviceWorkers:'block'}),page=await ctx.newPage();
+export async function probeFileOrigin(browser,filename,output,profile) {
+  const ctx=await libraryContext(browser,profile,{headless:true},{serviceWorkers:'block'}),page=await ctx.newPage();
   const messages=[]; page.on('pageerror',e=>messages.push(e.message));
   try {
     await page.goto(pathToFileURL(filename).href);

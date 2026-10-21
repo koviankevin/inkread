@@ -1,4 +1,4 @@
-import {browserType,compatibility,browserName,checkExamples,probeFileOrigin} from './browser-compat.mjs';
+import {browserType,compatibility,browserName,checkExamples,probeFileOrigin,libraryContext} from './browser-compat.mjs';
 import assert from 'node:assert/strict';
 import {mkdir,mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
 import path from 'node:path';
@@ -108,7 +108,7 @@ async function rows(page) {
 }
 try {
   browser=await browserType.launch(options);
-  donor=await setup(await browser.newContext({viewport:{width:1440,height:900},acceptDownloads:true}));
+  donor=await setup(await libraryContext(browser,path.join(temporary,'donor-profile'),options,{viewport:{width:1440,height:900},acceptDownloads:true}));
   const from=await donor.newPage(); await from.goto(sourceURL); await from.locator('#app:not([hidden])').waitFor();
   await from.locator('#folder-input').setInputFiles(fixture);
   await from.locator('#user-files button').filter({hasText:'second.md'}).click();
@@ -198,14 +198,14 @@ try {
     await checkExamples(page,output,archive);
     pass('Collapsed examples, search expansion and mobile restore cancellation preserve the document list');
     serverUnavailable=false;
-    local=await setup(await browser.newContext({viewport:{width:1440,height:900},acceptDownloads:true}));
+    local=await setup(await libraryContext(browser,path.join(temporary,'roundtrip-profile'),options,{viewport:{width:1440,height:900},acceptDownloads:true}));
     const fresh=await local.newPage(); await fresh.goto(targetURL); await fresh.locator('#offline-status[data-state=ready]').waitFor(); await offline(local);
     await preview(fresh,secondArchive); await fresh.locator('#restore-confirm').click(); await fresh.locator('#restore-dialog').waitFor({state:'hidden'});
     await positionRestored(fresh,'接續閱讀',readerOffset);
     await fresh.locator('#document a').filter({hasText:'下一份'}).click(); await positionRestored(fresh,'第二份接續',secondOffset);
     assert.deepEqual((await rows(fresh)).documents.map(d=>d.path).sort(),content.documents.map(d=>d.path).sort());
     pass('Re-exported format 1 archive restores into a fresh HTTP library with document links and progress');
-    await probeFileOrigin(browser,path.join(root,'dist/index.html'),output);
+    await probeFileOrigin(browser,path.join(root,'dist/index.html'),output,path.join(temporary,'file-probe-profile'));
   } else {
   local=await setup(await browser.newContext({serviceWorkers:'block',viewport:{width:1440,height:900},acceptDownloads:true}));
   await local.setOffline(true); const filePage=await local.newPage(); await filePage.goto(pathToFileURL(path.join(root,'dist/index.html')).href);
