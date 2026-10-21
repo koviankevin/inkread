@@ -82,3 +82,21 @@ JSON, failure diagnostics and screenshots are uploaded even on failure, for 7 da
 A passing CI run must be linked to its exact PR head; adding these tests alone is
 not evidence that they passed. Historical v1.7.0/v1.7.1 release runs do not validate
 this new matrix.
+
+## Re-export regression found by this matrix
+
+The initial persistent WebKit run restored a 14,634-byte format 1 archive, closed
+and reopened the profile, then exported again. Both the generated Blob and the
+real download were 29,150 bytes while the manifest declared 14,634 bytes; the
+strict decoder correctly rejected it. The extra 14,516 bytes equal the backing
+archive minus its 118-byte SVG image. This isolates Blob composition after
+IndexedDB rehydration, rather than an incomplete download.
+
+`encodeBackup` now reads each stored image into bytes, hashes those same bytes,
+and appends a fresh Blob. It checks the read length against the saved Blob size;
+format 1/2 and strict decoding stay unchanged. Materialization adds temporary
+memory for one image (bounded by the existing 20 MiB per-image limit), and keeps
+up to the existing 100 MiB of image payload in the output chunks. Both the
+re-export and subsequent fresh-profile restore remain mandatory browser checks.
+The regression was observed in Linux Playwright WebKit; Safari/iOS behavior is
+not inferred from that result.

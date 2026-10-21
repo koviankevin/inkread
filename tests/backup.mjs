@@ -86,6 +86,7 @@ async function backup(page,filename) {
       await writeFile(path.join(output,path.basename(filename)+'.json'),JSON.stringify({downloaded:bytes.length,inMemory:memory.length,expectedSize,manifest,stored:await rows(page)},null,2));
       console.log('Backup byte sizes:',JSON.stringify({filename:path.basename(filename),downloaded:bytes.length,inMemory:memory.length,expectedSize}));
       assert.deepEqual(bytes,memory,'Downloaded bytes must match the actual browser-generated Blob');
+      assert.equal(bytes.length,expectedSize,'Archive must contain exactly the declared document and image bytes');
     }
   } finally {
     if(compatibility) await page.evaluate(()=>{URL.createObjectURL=window.__backupObjectURL;delete window.__downloadBlob;});

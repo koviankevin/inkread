@@ -19,6 +19,7 @@ export async function libraryContext(browser,profile,launchOptions,contextOption
 }
 
 export async function checkExamples(page,output,archive) {
+  await page.setViewportSize({width:1440,height:900});
   const section=page.locator('#demo-section'),search=page.locator('#file-search');
   const names=await page.locator('#user-files button').allTextContents();
   assert(names.length>0);
@@ -41,7 +42,14 @@ export async function checkExamples(page,output,archive) {
   for (const width of [390,320]) {
     await page.setViewportSize({width,height:844});
     if (!await page.locator('#sidebar').isVisible()) await page.locator('#sidebar-toggle').click();
+    await search.fill('開始閱讀');
+    assert.equal(await section.evaluate(el=>el.open && !el.hidden),true);
+    await search.fill('');
     assert.deepEqual(await page.locator('#user-files button').allTextContents(),names);
+    for(const id of ['backup-library','restore-library']) {
+      const control=await page.locator(`#${id}`).boundingBox();
+      assert(control && control.x>=0 && control.x+control.width<=width,'Transfer controls must fit the viewport');
+    }
     await page.locator('#restore-library').scrollIntoViewIfNeeded();
     const chooser=page.waitForEvent('filechooser');
     await page.locator('#restore-library').click(); await (await chooser).setFiles(archive);
