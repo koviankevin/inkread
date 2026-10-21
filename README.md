@@ -2,6 +2,8 @@
 
 讓 Markdown 回到好閱讀。繁體中文介面，支援本機文件、好讀的表格、Mermaid 圖表與 LaTeX 公式；所有文件在瀏覽器內處理。
 
+1.7.1 起，側欄優先顯示「我的文件」，三份內建教學收在下方預設收合的「使用範例」。需要時點一下展開；搜尋到範例名稱時會自動展開，清除搜尋後恢復原本收合狀態。
+
 ## 直接使用
 
 [開啟線上墨閱](https://koviankevin.github.io/inkread/) · [下載離線網站 ZIP](https://koviankevin.github.io/inkread/inkread-offline.zip) · [GitHub 原始碼](https://github.com/koviankevin/inkread)

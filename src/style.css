@@ -25,3 +25,4 @@
 .library-state{display:grid;grid-template-columns:minmax(0,1fr) auto;flex:0 1 240px}.library-state:before{content:'文件、圖片與進度已保存在此瀏覽器';visibility:hidden;grid-area:1/1;pointer-events:none}#library-status{grid-area:1/1}#library-retry{grid-area:1/2}
 
 #restore-result{white-space:pre-line;max-height:18vh;overflow:auto;overflow-wrap:anywhere}
+.demo-section{margin:22px 2px 12px;padding-top:14px;border-top:1px solid var(--line)}.demo-section>summary{margin:0;cursor:pointer;list-style:none}.demo-section>summary::-webkit-details-marker{display:none}.demo-section>summary:before{content:'›';font-size:16px;line-height:1;transition:transform .15s}.demo-section[open]>summary:before{transform:rotate(90deg)}.demo-section[open]>summary{margin-bottom:10px}

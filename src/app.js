@@ -383,6 +383,7 @@ function setFont(size) {
   requestAnimationFrame(updateTables);
 }
 
+let demoOpenBeforeSearch;
 function renderFiles() {
   const search = $('file-search').value.trim().toLocaleLowerCase();
   $('demo-files').replaceChildren();
@@ -412,7 +413,15 @@ function renderFiles() {
   }
   $('file-count').textContent = String(userCount).padStart(2,'0');
   $('clear-files').hidden = !userCount && !assetBlobs.size;
-  $('empty-files').hidden = filteredCount > 0;
+  const demoSection=$('demo-section'),demoMatches=$('demo-files').childElementCount;
+  if (search) {
+    if (demoOpenBeforeSearch===undefined) demoOpenBeforeSearch=demoSection.open;
+    demoSection.hidden=!demoMatches; demoSection.open=demoMatches>0;
+  } else {
+    demoSection.hidden=false;
+    if (demoOpenBeforeSearch!==undefined) { demoSection.open=demoOpenBeforeSearch; demoOpenBeforeSearch=undefined; }
+  }
+  $('empty-files').hidden = filteredCount > 0 || !!(search && demoMatches);
   $('empty-files').textContent = search ? '沒有符合的文件。' : userCount ? '沒有符合的文件。' : '把散落的想法，\n放進同一個閱讀空間。';
   refreshIcons();
 }
