@@ -43,7 +43,7 @@ let tocLinks = [];
 let activeHeadingIndex = -1;
 let measureHeadings = true;
 let progressFrame = 0;
-let fontSize = 16;
+let fontSize = 18;
 let toastTimer;
 let dragDepth = 0;
 let pasteCounter = 0;
@@ -975,7 +975,7 @@ window.addEventListener('beforeunload', () => { for (const url of assets.values(
 
 setTheme(preference('theme') === 'dark' ? 'dark' : 'light',false);
 const savedSize = Number(preference('font-size'));
-setFont(Number.isFinite(savedSize) && savedSize >= 13 ? savedSize : 16);
+setFont(Number.isFinite(savedSize) && savedSize >= 13 ? savedSize : 18);
 async function startReader() {
   try { await hydrateLibrary(true); } catch(error) { storageError=error; }
   libraryLoading=false;

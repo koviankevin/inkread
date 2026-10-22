@@ -4,6 +4,8 @@
 
 1.7.1 起，側欄優先顯示「我的文件」，三份內建教學收在下方預設收合的「使用範例」。需要時點一下展開；搜尋到範例名稱時會自動展開，清除搜尋後恢復原本收合狀態。
 
+1.7.2 起提高介面文字與對比，主要按鈕及文件名稱使用 14px，輔助文字至少 12px；新使用者正文預設為 18px。段落與清單不再比所選字級縮小，表格及程式碼也調大。既有字級偏好保留，仍可用上方加減鈕調成 13–22px。
+
 ## 直接使用
 
 [開啟線上墨閱](https://koviankevin.github.io/inkread/) · [下載離線網站 ZIP](https://koviankevin.github.io/inkread/inkread-offline.zip) · [GitHub 原始碼](https://github.com/koviankevin/inkread)
