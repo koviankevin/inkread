@@ -1,8 +1,8 @@
 # Browser acceptance
 
 `npm test` retains the seven existing Chromium suites (66 checks), including true
-Playwright offline emulation and full `file://` transfers. `pages.yml` is unchanged:
-Chromium acceptance still gates the release build and Pages deployment.
+Playwright offline emulation and full `file://` transfers. The Pages workflow runs
+this suite exactly once per PR, main push or manual dispatch.
 
 ## Focused compatibility jobs
 
@@ -20,13 +20,30 @@ no new runner/framework. `INKREAD_BROWSER` defaults to Chromium and rejects typo
 Only the two library suites run in the Firefox/WebKit matrix; they do not repeat
 the general rendering, security, lazy-loading or cache-repair suites.
 
-The independent `compatibility.yml` runs on PRs, main and manual dispatch, with
-separate Firefox/WebKit jobs (12-minute ceiling, no fail-fast). The original full
-Chromium suite (15-minute ceiling) runs here on PRs and manual dispatch only;
-main pushes use the existing Pages build's Chromium acceptance, avoiding a second
-identical run. This workflow does not deploy. Its checks
-are additional CI signals; it does not change repository branch-protection rules
-or make Firefox/WebKit prerequisites of the existing Pages deployment.
+`pages.yml` calls `compatibility.yml` as a local reusable workflow at the same
+commit. Its Firefox/WebKit jobs retain the 12-minute ceiling and no fail-fast;
+the Pages build retains the full Chromium suite (15-minute ceiling). These jobs
+run in parallel. There is no second independent main/PR compatibility trigger
+and no duplicate Chromium run.
+
+Deployment requires both `build` and the complete `compatibility` matrix to
+succeed in this run. Failure, cancellation or a skipped dependency blocks it.
+Only main pushes or manual dispatches on main can deploy; PRs and manual runs
+on other branches validate and upload artifacts without deployment. The tested
+build packages `dist/inkread-offline.zip` and uploads the Pages artifact; deployment
+uses that same run's artifact, without rebuilding or looking up other runs.
+Chromium and per-browser diagnostics are retained for 7 days, including failures.
+Only the deploy job receives Pages/OIDC write permissions. PR runs use read-only
+repository permissions. This does not change repository branch protection.
+
+`npm run test:ci` parses both workflow files and checks the dependency graph,
+triggers, exact source checkout, matrix, test commands, artifact flow and write
+permissions. It evaluates the actual deploy condition against all combinations
+of success/failure/cancelled/skipped dependencies, PR/non-main events and a
+cancelled run. Mutation cases ensure that removing a prerequisite, weakening the
+gate, ignoring test failures or reintroducing independent triggers is rejected.
+This is a configuration contract, not a simulated GitHub scheduler; live Actions
+must still confirm PR deployment is skipped and the main deployment succeeds.
 
 | Risk | Executed assertions |
 | --- | --- |

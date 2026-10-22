@@ -13,7 +13,8 @@
     "test": "node tests/verify.mjs && node tests/audit.mjs && node tests/lazy-features.mjs && node tests/offline-cache.mjs && node tests/library.mjs && node tests/backup.mjs && node tests/merge.mjs",
     "test:compat": "node tests/backup.mjs && node tests/merge.mjs",
     "benchmark:startup": "node tests/startup.mjs",
-    "dev": "python3 -m http.server 4173 --directory dist"
+    "dev": "python3 -m http.server 4173 --directory dist",
+    "test:ci": "node --test tests/ci-contract.mjs"
   },
   "dependencies": {
     "dompurify": "^3.3.1",
@@ -28,6 +29,7 @@
   "devDependencies": {
     "esbuild": "^0.25.12",
     "playwright-core": "^1.57.0",
-    "terser": "^5.51.2"
+    "terser": "^5.51.2",
+    "yaml": "2.9.1"
   }
 }
