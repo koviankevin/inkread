@@ -107,7 +107,7 @@ npm test
 
 ## GitHub Pages
 
-儲存庫的 Actions 工作流程會在推送 `main` 或手動觸發後，依序安裝依賴、執行 `npm audit --audit-level=low`、安裝 Chromium、建置網站及執行 `npm test`；全部成功才打包離線 ZIP、上傳 Pages 成品並部署。PR 本身不會觸發此工作流程。儲存庫的 **Settings → Pages → Source** 需設為 **GitHub Actions**。部署完成後，網站根目錄的 `inkread-offline.zip` 可供下載。
+Actions 在 PR、推送 `main` 或手動觸發時驗證：建置工作執行 CI 契約檢查、`npm audit --audit-level=low`、建置及完整 Chromium `npm test`，並平行呼叫同提交的 Firefox／Playwright WebKit 備份與合併相容性測試。只有兩組必要工作全部成功，且來源為 `main` 的推送或手動執行，才部署該次執行產生的 Pages 成品；失敗、取消或略過都不發布。PR 只驗證與產生 artifact，不部署；Chromium 每次只跑一次。離線 ZIP 打包方式保持不變。契約檢查可用 `npm run test:ci` 單獨執行，範圍與限制見 [`tests/README.md`](tests/README.md)。Playwright WebKit 是引擎測試，不代表真正 Safari／iOS 實機驗證。儲存庫的 **Settings → Pages → Source** 需設為 **GitHub Actions**。部署完成後，網站根目錄的 `inkread-offline.zip` 可供下載。
 
 ## 第三方授權
 
