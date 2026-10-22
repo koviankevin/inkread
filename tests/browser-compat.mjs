@@ -10,6 +10,24 @@ assert(['chromium','firefox','webkit'].includes(browserName),'Unknown INKREAD_BR
 export const browserType={chromium,firefox,webkit}[browserName];
 export const compatibility=browserName!=='chromium';
 
+export async function clickRestore(page) {
+  const button=page.locator('#restore-confirm');
+  if (browserName!=='firefox') return button.click();
+  await button.waitFor({state:'visible'});
+  assert.equal(await button.isEnabled(),true,'Restore must be enabled before clicking');
+  await button.scrollIntoViewIfNeeded();
+  // Firefox can retain a visual viewport offset after document content shrinks.
+  // Verify the painted target, then translate its DOM bounds for native mouse input.
+  const point=await button.evaluate(el=>{
+    const r=el.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2,hit=document.elementFromPoint(x,y);
+    if (hit!==el && !el.contains(hit)) throw new Error('Restore button is covered');
+    const viewport=window.visualViewport,px=x-(viewport?.offsetLeft || 0),py=y-(viewport?.offsetTop || 0);
+    if (px<0 || py<0 || px>=(viewport?.width || innerWidth) || py>=(viewport?.height || innerHeight)) throw new Error('Restore button is outside the visible viewport');
+    return {x:px,y:py};
+  });
+  await page.mouse.click(point.x,point.y);
+}
+
 // WebKit ephemeral sessions cannot persist image Blobs (Playwright #42795).
 // Use an empty real profile, not mocked storage; every write/restore must succeed.
 export async function libraryContext(browser,profile,launchOptions,contextOptions) {

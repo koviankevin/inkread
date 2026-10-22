@@ -1,4 +1,4 @@
-import {browserType,compatibility,browserName,checkExamples,probeFileOrigin,libraryContext} from './browser-compat.mjs';
+import {browserType,compatibility,browserName,checkExamples,probeFileOrigin,libraryContext,clickRestore} from './browser-compat.mjs';
 import assert from 'node:assert/strict';
 import {mkdir,mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
 import path from 'node:path';
@@ -119,7 +119,7 @@ async function choose(page,value='existing') { for (const select of await page.l
 const choice=(page,kind,file)=>page.locator(`#restore-conflicts select[data-kind="${kind}"][data-path="books/${file}"]`);
 // Firefox's default clickable quad can drift inside a scrolled native dialog.
 // Pick an explicit interior point, retaining Playwright visibility/hit-target checks.
-async function confirm(page) { await page.locator('#restore-confirm').click(browserName==='firefox' ? {position:{x:12,y:12}} : {}); await page.locator('#restore-dialog').waitFor({state:'hidden'}); await saved(page); }
+async function confirm(page) { await clickRestore(page); await page.locator('#restore-dialog').waitFor({state:'hidden'}); await saved(page); }
 async function at(page,name,amount=120) {
   await saved(page);
   await page.getByRole('heading',{name,exact:true}).evaluate((el,y)=>window.scrollTo({top:el.getBoundingClientRect().top+scrollY+y,behavior:'instant'}),amount);
@@ -199,7 +199,7 @@ try {
   await preview(page,archive); await choose(page);
   const other=await targetContext.newPage(); await other.goto(targetURL); await other.locator('#app:not([hidden])').waitFor();
   await other.locator('#file-input').setInputFiles({name:'other-tab.md',mimeType:'text/markdown',buffer:Buffer.from('# 其他分頁的新文件')}); await saved(other);
-  await page.locator('#restore-confirm').click(browserName==='firefox' ? {position:{x:12,y:12}} : {}); await page.locator('#restore-error').filter({hasText:'其他分頁已更新文件庫'}).waitFor();
+  await clickRestore(page); await page.locator('#restore-error').filter({hasText:'其他分頁已更新文件庫'}).waitFor();
   assert.equal(await page.locator('#restore-confirm').isDisabled(),true); assert((await rows(page)).documents.some(d=>d.path==='other-tab.md'));
   await choose(page); await confirm(page); assert.equal((await rows(page)).documents.length,4);
   await other.close();
@@ -207,7 +207,7 @@ try {
 
   await preview(page,archive); await choose(page,'backup'); before=await rows(page);
   await page.evaluate(()=>{window.__mergeClear=IDBObjectStore.prototype.clear;IDBObjectStore.prototype.clear=function(...args){const r=window.__mergeClear.apply(this,args);if(this.name==='documents')this.transaction.abort();return r;};});
-  await page.locator('#restore-confirm').click(browserName==='firefox' ? {position:{x:12,y:12}} : {}); await page.locator('#restore-error').filter({hasText:'原文件庫仍保留'}).waitFor();
+  await clickRestore(page); await page.locator('#restore-error').filter({hasText:'原文件庫仍保留'}).waitFor();
   assert.deepEqual((await rows(page)).documents,before.documents); assert.deepEqual((await rows(page)).assets,before.assets);
   await page.evaluate(()=>{IDBObjectStore.prototype.clear=window.__mergeClear;}); await confirm(page);
   pass('Failed merge transactions roll back all changes and can retry with the selected versions intact');

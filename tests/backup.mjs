@@ -1,4 +1,4 @@
-import {browserType,compatibility,browserName,checkExamples,probeFileOrigin,libraryContext} from './browser-compat.mjs';
+import {browserType,compatibility,browserName,checkExamples,probeFileOrigin,libraryContext,clickRestore} from './browser-compat.mjs';
 import assert from 'node:assert/strict';
 import {mkdir,mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
 import path from 'node:path';
@@ -164,10 +164,10 @@ try {
       return request;
     };
   });
-  await page.locator('#restore-confirm').click(); await page.locator('#restore-error').filter({hasText:'原文件庫仍保留'}).waitFor();
+  await clickRestore(page); await page.locator('#restore-error').filter({hasText:'原文件庫仍保留'}).waitFor();
   assert.equal((await rows(page)).documents[0].path,'keep.md');
   await page.evaluate(()=>{IDBObjectStore.prototype.clear=window.__backupClear;});
-  await page.locator('#restore-confirm').click(); await page.locator('#restore-dialog').waitFor({state:'hidden'});
+  await clickRestore(page); await page.locator('#restore-dialog').waitFor({state:'hidden'});
   await positionRestored(page,'接續閱讀',readerOffset);
   assert.equal((await rows(page)).documents.length,2);
   await other.waitForFunction(()=>document.querySelectorAll('#user-files button').length===0);
@@ -211,7 +211,7 @@ try {
     serverUnavailable=false;
     local=await setup(await libraryContext(browser,path.join(temporary,'roundtrip-profile'),options,{viewport:{width:1440,height:900},acceptDownloads:true}));
     const fresh=await local.newPage(); await fresh.goto(targetURL); await fresh.locator('#offline-status[data-state=ready]').waitFor(); await offline(local);
-    await preview(fresh,secondArchive); await fresh.locator('#restore-confirm').click(); await fresh.locator('#restore-dialog').waitFor({state:'hidden'});
+    await preview(fresh,secondArchive); await clickRestore(fresh); await fresh.locator('#restore-dialog').waitFor({state:'hidden'});
     await positionRestored(fresh,'接續閱讀',readerOffset);
     await fresh.locator('#document a').filter({hasText:'下一份'}).click(); await positionRestored(fresh,'第二份接續',secondOffset);
     assert.deepEqual((await rows(fresh)).documents.map(d=>d.path).sort(),content.documents.map(d=>d.path).sort());
@@ -221,7 +221,7 @@ try {
   local=await setup(await browser.newContext({serviceWorkers:'block',viewport:{width:1440,height:900},acceptDownloads:true}));
   await local.setOffline(true); const filePage=await local.newPage(); await filePage.goto(pathToFileURL(path.join(root,'dist/index.html')).href);
   await filePage.locator('#app:not([hidden])').waitFor(); await preview(filePage,archive);
-  await filePage.locator('#restore-confirm').click(); await filePage.locator('#restore-dialog').waitFor({state:'hidden'});
+  await clickRestore(filePage); await filePage.locator('#restore-dialog').waitFor({state:'hidden'});
   await positionRestored(filePage,'接續閱讀',readerOffset);
   await filePage.locator('.mermaid-container svg').waitFor(); await filePage.locator('.katex').waitFor();
   const localArchive=path.join(temporary,'file.inkread'); await backup(filePage,localArchive);

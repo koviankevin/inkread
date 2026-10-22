@@ -32,3 +32,6 @@
 @media screen and (max-width:720px){.sidebar{padding-top:24px}.brand{margin-bottom:24px}.file-search{margin-top:16px}.sidebar-bottom{padding-top:14px}.import-icon{display:none}.privacy-note{padding:12px 0}.reading-controls .icon-button{width:32px;height:34px}.font-controls span{min-width:24px}.reading-controls svg,.font-controls svg{width:16px;height:16px}}
 @media screen and (max-width:380px){.reading-label #reading-time{display:none}}
 @media screen and (max-height:650px){.sidebar{overflow-y:auto}.library-scroll{flex:0 0 auto;min-height:0;overflow:visible}.sidebar-bottom{margin-top:auto}}
+
+.restore-modal{padding:0;overflow:hidden}.restore-modal>form{display:flex;flex-direction:column;max-height:calc(90vh - 2px);min-height:0}.restore-modal .modal-header{flex-shrink:0;padding:24px 30px 10px}.restore-content{min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:0 30px}.restore-modal .modal-footer{flex-shrink:0;margin-top:0;padding:18px 30px}.restore-modal #restore-error{flex-shrink:0;margin:0;padding:8px 30px;max-height:20vh;overflow:auto}.restore-modal #restore-error:empty{display:none}
+@media(max-width:720px){.restore-modal .modal-header{padding:20px 22px 8px}.restore-content{padding:0 22px}.restore-modal .modal-footer{padding:16px 22px}.restore-modal #restore-error{padding:8px 22px}}
