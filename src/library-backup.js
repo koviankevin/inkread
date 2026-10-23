@@ -13,7 +13,8 @@ const validPath=value=>typeof value==='string' && value.length>0 && value.length
 
 function positionFor(row,paths) {
   if (!row || !paths.has(row.path) || !Number.isFinite(row.y) || row.y<0 || row.y>1e9 || !Number.isFinite(row.ratio) || row.ratio<0 || row.ratio>1 || !Number.isFinite(row.fraction) || row.fraction<0 || row.fraction>1 || typeof row.anchor!=='string' || row.anchor.length>1000 || typeof row.atEnd!=='boolean' || !Number.isFinite(row.updatedAt) || row.updatedAt<0) invalid();
-  return {path:row.path,y:row.y,ratio:row.ratio,fraction:row.fraction,anchor:row.anchor,atEnd:row.atEnd,updatedAt:row.updatedAt};
+  if (row.fontSize!==undefined && (!Number.isInteger(row.fontSize) || row.fontSize<13 || row.fontSize>22)) invalid();
+  return {path:row.path,y:row.y,ratio:row.ratio,fraction:row.fraction,anchor:row.anchor,atEnd:row.atEnd,updatedAt:row.updatedAt,...(row.fontSize===undefined ? {} : {fontSize:row.fontSize})};
 }
 
 // A small hashed JSON manifest followed by original UTF-8 text and image bytes.

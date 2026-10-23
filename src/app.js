@@ -93,9 +93,9 @@ function rememberPosition() {
   const y=window.scrollY, end=document.documentElement.scrollHeight;
   const index=Math.max(0,activeHeadingIndex), top=headingPositions[index];
   const height=Math.max(1,(headingPositions[index+1] || end) - (top || 0));
-  const position={path:current.path,revision:current.revision,y,ratio:y/Math.max(1,end-window.innerHeight),anchor:activeHeadings[index]?.id || '',fraction:Math.max(0,Math.min(1,(y+150-(top || 0))/height)),atEnd:y+window.innerHeight>=end-5,updatedAt:Date.now()};
+  const position={path:current.path,revision:current.revision,y,ratio:y/Math.max(1,end-window.innerHeight),anchor:activeHeadings[index]?.id || '',fraction:Math.max(0,Math.min(1,(y+150-(top || 0))/height)),fontSize,atEnd:y+window.innerHeight>=end-5,updatedAt:Date.now()};
   const previous=readingPositions.get(current.path);
-  if (previous && Math.abs(previous.y-y)<1 && previous.anchor===position.anchor && previous.atEnd===position.atEnd && Math.abs(previous.fraction-position.fraction)<1e-6 && Math.abs(previous.ratio-position.ratio)<1e-6) return;
+  if (previous && previous.fontSize===fontSize && Math.abs(previous.y-y)<1 && previous.anchor===position.anchor && previous.atEnd===position.atEnd && Math.abs(previous.fraction-position.fraction)<1e-6 && Math.abs(previous.ratio-position.ratio)<1e-6) return;
   readingPositions.set(current.path,position); dirtyPositions.set(current.path,position);
   selectForSaving();
 }
@@ -151,7 +151,13 @@ async function hydrateLibrary(resume) {
   const restorePosition=position=>{
     const doc=position && documents.get(position.path);
     if (!doc || doc.demo || position.revision!==doc.revision || !Number.isFinite(position.y) || position.y<0 || !Number.isFinite(position.ratio) || position.ratio<0 || position.ratio>1 || !Number.isFinite(position.fraction) || position.fraction<0 || position.fraction>1 || typeof position.anchor!=='string' || position.anchor.length>1000 || !Number.isFinite(position.updatedAt)) return;
-    if (position.updatedAt>(readingPositions.get(doc.path)?.updatedAt || 0)) readingPositions.set(doc.path,position);
+    if (position.updatedAt>(readingPositions.get(doc.path)?.updatedAt || 0)) {
+      if (position.fontSize===undefined && migrationFontSize) {
+        position={...position,fontSize:migrationFontSize};
+        dirtyPositions.set(doc.path,position);
+      }
+      readingPositions.set(doc.path,position);
+    }
   };
   for (const position of saved.positions) restorePosition(position);
   restorePosition(saved.checkpoint?.position);
@@ -320,6 +326,23 @@ async function restoreLibrary() {
     $('restore-options').disabled=false; $('restore-cancel').disabled=false; renderLibraryStatus();
   }
 }
+function readingBlock(y) {
+  const blocks=$('document').querySelectorAll('p,li,pre,table,h1,h2,h3,h4,h5,h6,.mermaid-container');
+  let low=0,high=blocks.length;
+  while (low<high) {
+    const middle=(low+high)>>>1;
+    if (blocks[middle].getBoundingClientRect().top+scrollY<=y) low=middle+1;
+    else high=middle;
+  }
+  const element=blocks[Math.max(0,low-1)];
+  if (!element) return;
+  const rect=element.getBoundingClientRect();
+  return {element,fraction:Math.max(0,Math.min(1,(y-rect.top-scrollY)/Math.max(1,rect.height)))};
+}
+function blockTarget(point) {
+  const rect=point.element.getBoundingClientRect();
+  return rect.top+scrollY+point.fraction*rect.height-150;
+}
 async function resumePosition(position,task) {
   try {
     await renderAllFeatures();
@@ -327,14 +350,24 @@ async function resumePosition(position,task) {
     await document.fonts.ready;
     await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
     if (resumeTask!==task || task.version!==renderVersion) return;
-    const max=Math.max(0,document.documentElement.scrollHeight-innerHeight);
     const index=activeHeadings.findIndex(heading=>heading.id===position.anchor);
-    let target=position.ratio*max;
-    if (index>=0) {
+    const targetAtSize=()=>{
+      if (index<0) return position.ratio*Math.max(0,document.documentElement.scrollHeight-innerHeight);
       const top=activeHeadings[index].getBoundingClientRect().top+scrollY;
       const end=activeHeadings[index+1] ? activeHeadings[index+1].getBoundingClientRect().top+scrollY : document.documentElement.scrollHeight;
-      target=top+position.fraction*Math.max(1,end-top)-150;
+      return top+position.fraction*Math.max(1,end-top)-150;
+    };
+    let point;
+    if (!position.atEnd && Number.isInteger(position.fontSize) && position.fontSize>=13 && position.fontSize<=22 && position.fontSize!==fontSize) {
+      // Reconstruct the saved layout before interpreting its section fraction.
+      // Reflow can change different paragraphs by different amounts.
+      try {
+        document.documentElement.style.setProperty('--reader-size',`${position.fontSize}px`);
+        point=readingBlock(targetAtSize()+150);
+      } finally { document.documentElement.style.setProperty('--reader-size',`${fontSize}px`); }
     }
+    const max=Math.max(0,document.documentElement.scrollHeight-innerHeight);
+    const target=point ? blockTarget(point) : targetAtSize();
     window.scrollTo({top:position.atEnd ? max : Math.max(0,Math.min(max,target)),behavior:'instant'});
   } catch {
     if (resumeTask===task && task.version===renderVersion) window.scrollTo({top:position.y,behavior:'instant'});
@@ -381,6 +414,7 @@ function setFont(size, manual = false) {
   $('font-plus').disabled = fontSize >= 22;
   if (manual) preference('font-size-choice',String(fontSize));
   preference('font-size',String(fontSize));
+  measureHeadings=true;
   requestAnimationFrame(updateTables);
 }
 
@@ -978,6 +1012,7 @@ setTheme(preference('theme') === 'dark' ? 'dark' : 'light',false);
 const savedSize = Number(preference('font-size'));
 const chosenSize = Number(preference('font-size-choice'));
 const hasChosenSize = Number.isInteger(chosenSize) && chosenSize >= 13 && chosenSize <= 22;
+const migrationFontSize=!hasChosenSize && savedSize===16 ? 16 : undefined;
 // Legacy versions saved the default on startup, without recording user intent.
 // Upgrade their 16px value once; explicit choices made since this version win.
 setFont(hasChosenSize ? chosenSize : savedSize !== 16 && Number.isFinite(savedSize) && savedSize >= 13 ? savedSize : 18);
