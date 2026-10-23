@@ -113,6 +113,17 @@ try{
   points.headerCheckpoint=await point(page);
   await context.close();context=undefined;page=await launch(true);points.headerRestart=await same(page,points.headerCheckpoint);
   pass('Header-only layout change checkpoints the real paragraph before observers and restores it offline');
+  const heightCheckpoint=await page.evaluate(()=>{
+    document.querySelector('#document p').style.minHeight='250px';
+    const el=[...document.querySelectorAll('#document p')].find(el=>el.textContent.startsWith('PARA-075 '));
+    scrollTo({top:scrollY+el.getBoundingClientRect().top+el.getBoundingClientRect().height*.35-150,behavior:'instant'});
+    window.dispatchEvent(new Event('pagehide'));
+    const row=JSON.parse(localStorage.getItem('inkread-library:'+new URL('./',location.href).href+':checkpoint')).position;
+    return {paragraph:document.getElementById('document').children[row.block.index].textContent.match(/^PARA-\d+/)?.[0],fraction:row.block.fraction};
+  });
+  assert.equal(heightCheckpoint.paragraph,'PARA-075','Content-height same-frame reflow must checkpoint the actual paragraph');assert(Math.abs(heightCheckpoint.fraction-.35)<.035);
+  points.heightCheckpoint=await point(page);await context.close();context=undefined;page=await launch(true);points.heightRestart=await same(page,points.heightCheckpoint);
+  pass('Content-height layout change checkpoints the real paragraph before observers and restores it offline');
   await page.evaluate(()=>scrollTo({top:document.documentElement.scrollHeight,behavior:'instant'}));await page.waitForTimeout(650);await saved(page);
   for(let i=Number(await page.locator('#font-size').textContent());i<22;i++){await page.locator('#font-plus').click();await page.waitForTimeout(100);}
   if(!compatibility)await zoom(page,1.25);

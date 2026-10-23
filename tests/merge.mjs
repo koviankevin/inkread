@@ -122,6 +122,12 @@ const choice=(page,kind,file)=>page.locator(`#restore-conflicts select[data-kind
 async function confirm(page) { await clickRestore(page); await page.locator('#restore-dialog').waitFor({state:'hidden'}); await saved(page); }
 async function at(page,name,amount=120) {
   await saved(page);
+  // Establish the expected reading location after local image dimensions settle.
+  await page.evaluate(async()=>{
+    await Promise.allSettled([...document.querySelectorAll('#document img')].map(img=>img.decode()));
+    await document.fonts.ready;
+    await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+  });
   await page.getByRole('heading',{name,exact:true}).evaluate((el,y)=>window.scrollTo({top:el.getBoundingClientRect().top+scrollY+y,behavior:'instant'}),amount);
   await page.waitForTimeout(650); await saved(page); return page.getByRole('heading',{name,exact:true}).evaluate(el=>-el.getBoundingClientRect().top);
 }
