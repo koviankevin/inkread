@@ -39,7 +39,8 @@ const options={headless:true,hasTouch:true,viewport:{width:1440,height:900},...(
 async function launch(kind,offline=false){
  context=await browserType.launchPersistentContext(profile,{...options,...(kind&&remote?{proxy:{server:'http://127.0.0.1:'+proxy.address().port}}:{})});
  context.__pending=[];
- context.on('page',p=>{p.on('pageerror',e=>errors.push(e.message));p.on('request',r=>{if(r.url().startsWith(pendingBase))context.__pending.push(r.url());});});
+ context.__pendingSeen=new Promise(resolve=>context.__notifyPending=resolve);
+ context.on('page',p=>{p.on('pageerror',e=>errors.push(e.message));p.on('request',r=>{if(r.url().startsWith(pendingBase)){context.__pending.push(r.url());context.__notifyPending();}});});
  if(kind)await context.addInitScript(({kind,pendingBase,imageSize})=>{
   const retained=[],objectURLs=new Map();let holding=true;
   const descriptor=Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype,'src');
@@ -100,6 +101,7 @@ async function stable(p,name){
 }
 async function pending(p,kind){
  await p.waitForFunction(kind=>{const s=window.__qaPending?.();return s&&(kind==='image'?s.images>0:kind==='diagram'?s.diagrams:kind==='formula'?s.formulas>0:s.images>0&&s.diagrams&&s.formulas>0);},kind);
+ let timer;await Promise.race([context.__pendingSeen,new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('No native pending media request')),10000);})]).finally(()=>clearTimeout(timer));
  assert(context.__pending.length>0,'The native media request must have started');
  return p.evaluate(()=>window.__qaPending());
 }
