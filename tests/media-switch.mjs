@@ -43,7 +43,6 @@ async function launch(kind,offline=false,touch=false){
  context.on('page',p=>{
   p.on('pageerror',e=>errors.push(e.message));
   p.on('request',r=>{if(r.url().startsWith(pendingBase)){context.__pending.push(r.url());context.__notifyPending();}});
-  p.on('console',message=>{const text=message.text(),prefix='INKREAD-UNLOAD-CHECKPOINT ';if(text.startsWith(prefix))unloads.push(JSON.parse(text.slice(prefix.length)));});
  });
  if(kind)await context.addInitScript(({kind,pendingBase,imageSize})=>{
   const retained=[],objectURLs=new Map();let holding=true;
@@ -147,24 +146,36 @@ try{
   if(phase==='late-completion'){await p.evaluate(()=>window.__qaRelease());await stable(p,b);}
   const requests=[...context.__pending];inFlight={kind,phase,beforeSwitch,expectedA:expected[a],expectedB:expected[b]};
   if(phase==='rapid-user-move')Object.assign(inFlight,{beforeClose:await point(p),input:await p.evaluate(()=>window.__qaWheelReceived)});
-  if(phase==='rapid-user-move')await p.evaluate(token=>addEventListener('beforeunload',()=>{
-   const checkpoint=JSON.parse(localStorage.getItem(`inkread-library:${new URL('./',location.href).href}:checkpoint`)||'null');
-   // Observe after the app's existing listener; no test storage write or save.
-   console.debug('INKREAD-UNLOAD-CHECKPOINT '+JSON.stringify({token,y:scrollY,path:checkpoint?.current?.path,positionY:checkpoint?.position?.y}));
-  }),kind+':'+phase);
+  if(phase==='rapid-user-move')await p.evaluate(token=>{
+   const scope=new URL('./',location.href).href,key=`inkread-qa:${scope}:last-unload`;
+   localStorage.removeItem(key);
+   const record=event=>{
+    if(event.type==='visibilitychange'&&!document.hidden)return;
+    if(localStorage.getItem(key))return;
+    const checkpoint=JSON.parse(localStorage.getItem(`inkread-library:${scope}:checkpoint`)||'null');
+    // Read after the app's listener. Only a separate QA observation is written;
+    // never call save or modify the app's checkpoint, documents or positions.
+    localStorage.setItem(key,JSON.stringify({event:event.type,token,y:scrollY,path:checkpoint?.current?.path,positionY:checkpoint?.position?.y}));
+   };
+   addEventListener('beforeunload',record);addEventListener('pagehide',record);document.addEventListener('visibilitychange',record);
+  },kind+':'+phase);
   await close(p,phase==='switch');
+  p=await launch(undefined,true);
   if(phase==='rapid-user-move'){
-   inFlight.beforeUnload=unloads.findLast(event=>event.token===kind+':'+phase);
-   assert(inFlight.beforeUnload,'The real beforeunload event must be observed');
+   inFlight.beforeUnload=await p.evaluate(()=>JSON.parse(localStorage.getItem(`inkread-qa:${new URL('./',location.href).href}:last-unload`)||'null'));
+   assert(inFlight.beforeUnload,'A real shutdown event must be observed');
+   assert(['beforeunload','pagehide','visibilitychange'].includes(inFlight.beforeUnload.event));
+   assert.equal(inFlight.beforeUnload.token,kind+':'+phase);
    assert(inFlight.beforeUnload.path.endsWith('/'+b+'.md'));
-   assert(Math.abs(inFlight.beforeUnload.y-inFlight.beforeUnload.positionY)<1,'The latest reading position must already be checkpointed before unload finishes');
+   assert(Math.abs(inFlight.beforeUnload.y-inFlight.beforeUnload.positionY)<1,'The latest reading position must already be checkpointed when shutdown is observed');
+   unloads.push(inFlight.beforeUnload);
   }
-  p=await launch(undefined,true);const actualB=await stable(p,b);await button(p,a).click();const actualA=await stable(p,a);
+  const actualB=await stable(p,b);await button(p,a).click();const actualA=await stable(p,a);
   results.push(kind+': '+phase);evidence.push({kind,phase,beforeSwitch,requests,expectedA:expected[a],actualA,expectedB:expected[b],actualB});console.log('PASS '+results.at(-1));
   await p.screenshot({path:path.join(output,browserName+'-'+kind+'-'+phase+'.png')});await park(p);
  }
  assert.equal(results.length,12);assert.deepEqual(errors,[]);
- await writeFile(path.join(output,browserName+'-results.json'),JSON.stringify({browser:browserName,site:url,passed:results.length,results,evidence,errors,offlineMethod:'native context.setOffline(true) before navigation after full persistent browser restart'},null,2));
+ await writeFile(path.join(output,browserName+'-results.json'),JSON.stringify({browser:browserName,site:url,passed:results.length,results,evidence,errors,unloads,offlineMethod:'native context.setOffline(true) before navigation after full persistent browser restart'},null,2));
 }catch(error){const diagnostic=await context?.pages().at(-1)?.evaluate(()=>({file:document.getElementById('current-file')?.textContent,library:document.getElementById('library-status')?.outerHTML,checkpoint:Object.entries(localStorage).filter(([k])=>k.endsWith(':checkpoint')),scripts:[...document.scripts].map(s=>s.src)})).catch(()=>undefined);await writeFile(path.join(output,browserName+'-failure.json'),JSON.stringify({error:error.stack,results,evidence,errors,inFlight,diagnostic},null,2));await context?.pages().at(-1)?.screenshot({path:path.join(output,browserName+'-failure.png')}).catch(()=>{});throw error;
 }finally{
  await context?.close();for(const resolve of held)resolve();for(const socket of sockets)socket.destroy();await new Promise(resolve=>proxy.close(resolve));await server.close();
