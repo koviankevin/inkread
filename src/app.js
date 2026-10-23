@@ -771,7 +771,12 @@ function showDocument(doc, {preserveScroll = false, anchor = '',record = true,re
   refreshIcons();
   prepareFeatures(rendered,version);
   displayedDocument=doc;
-  if (record) selectForSaving();
+  if (record) {
+    selectForSaving();
+    // A browser can terminate before unload or the deferred IndexedDB write.
+    // Save the selection with its existing position, including a pending restore.
+    checkpointLibrary();
+  }
   if (anchor) renderAllFeatures().then(() => { if (version === renderVersion) jumpToAnchor(anchor); });
   if (resumeTask) void resumePosition(position,resumeTask);
   updateProgress();
