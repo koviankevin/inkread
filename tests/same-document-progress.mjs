@@ -61,7 +61,7 @@ async function holdStorage(p){
  },name);
 }
 async function closePage(p){const done=p.waitForEvent('close');await p.close({runBeforeUnload:true});await done;}
-async function closeAll(order){if(order==='simultaneous')await Promise.all(pages.map(closePage));else for(const i of order)await closePage(pages[i]);pages=[];await context.close();context=undefined;}
+async function closeAll(order){if(order==='simultaneous')await Promise.all(pages.map(closePage));else for(const i of order)await closePage(pages[i]);for(let i=0;i<pages.length;i++)addresses[books[i].name]=pages[i].url();pages=[];await context.close();context=undefined;}
 async function verifyRecovery(phase){
  await launch(true);pages=[];
  for(const b of books){
@@ -94,6 +94,17 @@ try{
  const pass=label=>{results.push(label);console.log('PASS '+label);};
  for(let i=0;i<pages.length;i++){await pages[i].reload({waitUntil:'domcontentloaded'});await media(pages[i],books[i]);await saved(pages[i]);same(await point(pages[i]),expected[books[i].name],'same-file reload '+i);}
  pass('Offline reload keeps all four same-file positions independent');
+ const writes=await pages[0].locator('#document p').filter({hasText:/^PARA-009 /}).evaluate(async e=>{
+  const replace=history.replaceState;let calls=0;
+  history.replaceState=function(...args){calls++;return replace.apply(this,args);};
+  try{for(let i=0;i<120;i++){const r=e.getBoundingClientRect();scrollTo({top:scrollY+r.top+r.height*(.3+i/1200)-150,behavior:'instant'});await new Promise(r=>requestAnimationFrame(r));}return calls;}
+  finally{history.replaceState=replace;}
+ });
+ assert(writes>=1 && writes<=15,'Continuous scrolling must coalesce native history writes');
+ await pages[0].waitForTimeout(650);await saved(pages[0]);
+ const scrollingPoint=await point(pages[0]);await pages[0].reload({waitUntil:'domcontentloaded'});await media(pages[0],books[0]);await saved(pages[0]);same(await point(pages[0]),scrollingPoint,'continuous scroll reload');
+ assert.equal(JSON.parse(decodeURIComponent(pages[0].url().split('&position=')[1])).position.anchor,'','Tab URLs must omit heading text');
+ pass('Continuous scrolling coalesces native history writes and reloads the latest paragraph');
  const original=pages[0],originalPoint=await point(original),duplicate=await context.newPage();
  await duplicate.goto(original.url(),{waitUntil:'domcontentloaded'});await media(duplicate,books[0]);await saved(duplicate);same(await point(duplicate),originalPoint,'duplicate initial');
  const duplicatePoint=await move(duplicate,{name:'duplicate'},20);await original.reload({waitUntil:'domcontentloaded'});await media(original,books[0]);await saved(original);same(await point(original),originalPoint,'duplicate cannot overwrite original');
@@ -113,7 +124,7 @@ try{
  await checkAddress(base+'&position='+encodeURIComponent(JSON.stringify({...own,epoch:'obsolete-library'})),fallback,'wrong epoch');pass('An obsolete library epoch cannot override progress after replacement');
  await checkAddress(base+'&position='+encodeURIComponent(JSON.stringify({...own,position:{...own.position,revision:'obsolete-document'}})),fallback,'wrong revision');pass('An obsolete document revision cannot override reimported content progress');
  await checkAddress(base+'&position='+encodeURIComponent(' '.repeat(4100)),fallback,'oversized');pass('Oversized tab snapshots are ignored without breaking offline reading');
- assert.equal(results.length,20);assert.deepEqual(errors,[]);
+ assert.equal(results.length,21);assert.deepEqual(errors,[]);
  await writeFile(path.join(output,browserName+'-results.json'),JSON.stringify({browser:browserName,version,site:url,passed:results.length,results,evidence,live,errors,tabs:4,offlineMethod:'native context.setOffline(true) before navigation after full persistent browser restart',note:'No app storage writes or save calls from test hooks; the simultaneous phase holds a real IDB transaction with GET requests only, keeping periodic writes queued until all reader pages close. Input acknowledgment is observation only. All four readers open the same saved file at distinct paragraphs. Each recovery reopens the actual URL retained by each tab; no library-file selection or application-storage injection occurs after restart.'},null,2));
 }catch(e){await writeFile(path.join(output,browserName+'-failure.json'),JSON.stringify({error:e.stack,results,evidence,live,errors,expected},null,2));await context?.pages().at(-1)?.screenshot({path:path.join(output,browserName+'-failure.png')}).catch(()=>{});throw e;}
 finally{await context?.close();await server.close();assert(path.resolve(temporary).startsWith(path.resolve(os.tmpdir())+path.sep));await rm(temporary,{recursive:true,force:true,maxRetries:5,retryDelay:200});}

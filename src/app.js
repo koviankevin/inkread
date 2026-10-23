@@ -55,6 +55,7 @@ let libraryLoading = true, libraryReady = false, libraryGeneration = 0;
 let saveTimer, savePromise, pendingSelection, storageError, clearFailed = false, clearing = false, resumeTask;
 let transferBusy=false, restoreCommitting=false, restoreSnapshot, importsInFlight=0;
 let restoreBase, restorePreparing=false;
+let tabBookmarkTimer,lastTabBookmark=0;
 const restoreChoices=new Map(), restorePreviewURLs=[];
 const library = createLibraryStore(()=>{
   libraryReady=false; storageError=undefined; clearFailed=false; resetLibraryMemory();
@@ -96,7 +97,19 @@ function tabDocumentPath() {
   if (!location.hash.startsWith('#inkread=')) return;
   try { return decodeURIComponent(location.hash.slice(9).split('&position=')[0]); } catch { /* Invalid bookmark. */ }
 }
-function rememberTabDocument() {
+function rememberTabDocument(immediate=true) {
+  const elapsed=Date.now()-lastTabBookmark;
+  // WebKit limits history writes. Coalesce continuous scrolling while keeping
+  // document selection and page exit synchronous, including pending IDB saves.
+  if (!immediate && elapsed<500) {
+    if (!tabBookmarkTimer) tabBookmarkTimer=setTimeout(()=>{
+      tabBookmarkTimer=undefined;
+      if (libraryReady && !libraryLoading && !clearing) rememberTabDocument();
+    },500-elapsed);
+    return;
+  }
+  clearTimeout(tabBookmarkTimer); tabBookmarkTimer=undefined;
+  lastTabBookmark=Date.now();
   try {
     let hash=`#inkread=${encodeURIComponent(current.path)}`;
     const position=readingPositions.get(current.path);
@@ -120,7 +133,7 @@ function rememberPosition() {
   const previous=readingPositions.get(current.path);
   if (previous && previous.fontSize===fontSize && previous.block?.index===block?.index && previous.block?.gap===block?.gap && Math.abs((previous.block?.fraction || 0)-(block?.fraction || 0))<1e-6 && Math.abs(previous.y-y)<1 && previous.anchor===position.anchor && previous.atEnd===position.atEnd && Math.abs(previous.fraction-position.fraction)<1e-6 && Math.abs(previous.ratio-position.ratio)<1e-6) return;
   readingPositions.set(current.path,position); dirtyPositions.set(current.path,position);
-  rememberTabDocument();
+  rememberTabDocument(false);
   selectForSaving();
 }
 function checkpointLibrary() {
@@ -132,7 +145,7 @@ function saveOnExit() {
   // A tab invalidated by another tab must not reload the library while leaving
   // and checkpoint its temporary guide over the newly restored selection.
   if (!libraryReady) return;
-  checkpointLibrary(); void flushLibrary();
+  checkpointLibrary(); rememberTabDocument(); void flushLibrary();
 }
 function flushLibrary() {
   clearTimeout(saveTimer); saveTimer=undefined;
@@ -209,6 +222,7 @@ async function hydrateLibrary(resume) {
   if (!resume) { renderFiles(); renderImages(currentImages); }
 }
 function resetLibraryMemory() {
+  clearTimeout(tabBookmarkTimer); tabBookmarkTimer=undefined;
   libraryGeneration++; resumeTask=undefined; clearTimeout(saveTimer); saveTimer=undefined;
   dirtyDocuments.clear(); dirtyAssets.clear(); dirtyPositions.clear(); readingPositions.clear(); pendingSelection=undefined;
   for (const [path,doc] of documents) if (!doc.demo) documents.delete(path);

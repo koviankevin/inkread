@@ -155,4 +155,4 @@ The bounded job deadline increased from 25 to 35 minutes after two Firefox attem
 
 ## 同文件多分頁
 
-1.7.10 新增 same-document-progress.mjs：四分頁同一份混合媒體文件，三種關閉順序及未完成 IDB 寫入，完整原生離線重啟逐份驗證段落／比例／圖片像素／圖表／公式字型，另八項含複製後獨立閱讀、離線reload、文件切換、非法／過長／過期片段及舊網址回退，共20項；三引擎均納入 CI。
+1.7.10 新增 same-document-progress.mjs：四分頁同一份混合媒體文件，三種關閉順序及未完成 IDB 寫入，完整原生離線重啟逐份驗證段落／比例／圖片像素／圖表／公式字型，另八項含複製後獨立閱讀、離線reload、文件切換、非法／過長／過期片段及舊網址回退，共21項；三引擎均納入 CI。
