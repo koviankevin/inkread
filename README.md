@@ -125,7 +125,7 @@ npm test
 
 ## GitHub Pages
 
-Actions 在 PR、推送 `main` 或手動觸發時驗證：建置工作執行 CI 契約檢查、`npm audit --audit-level=low`、建置及完整 Chromium `npm test`，並平行呼叫同提交的 Firefox／Playwright WebKit 備份與合併相容性測試。只有兩組必要工作全部成功，且來源為 `main` 的推送或手動執行，才部署該次執行產生的 Pages 成品；失敗、取消或略過都不發布。PR 只驗證與產生 artifact，不部署；Chromium 每次只跑一次。離線 ZIP 打包方式保持不變。契約檢查可用 `npm run test:ci` 單獨執行，範圍與限制見 [`tests/README.md`](tests/README.md)。Playwright WebKit 是引擎測試，不代表真正 Safari／iOS 實機驗證。儲存庫的 **Settings → Pages → Source** 需設為 **GitHub Actions**。部署完成後，網站根目錄的 `inkread-offline.zip` 可供下載。
+Actions 依變更範圍選擇測試，完整規則與 PR → main 沿用條件見 [測試政策](TESTING.md)。CI 修改只跑契約與選測器，文件修改不啟動瀏覽器；受影響功能選入對應 Chromium／Firefox／Playwright WebKit 案例。main 核對相同完整原始碼與合併前基準後，沿用已成功的 PR 驗證，重新建置並部署本次產物；必要驗證失敗或取消時不發布。PR 只有唯讀權限且不部署，全套測試保留為明確的手動選項。儲存庫的 **Settings → Pages → Source** 需設為 **GitHub Actions**。部署完成後，網站根目錄的 `inkread-offline.zip` 可供下載。Playwright WebKit 不代表 Safari／iOS 實機驗證。
 
 ## 第三方授權
 
@@ -153,6 +153,6 @@ Service Worker 快取只包含建置時列出的網站靜態資源，包括圖�
 
 長文件的章節位置會快取；捲動更新每個畫面幀最多一次，使用二分搜尋選取目前章節。文件解析與圖表繪製仍在主執行緒，複雜圖表仍可能短暫停頓。完整圖表引擎仍有較大的首次使用成本。
 
-`npm test` 會執行功能驗收及安全／效能回歸；`npm audit` 查核鎖定依賴的已知弱點。GitHub Pages 部署前也會執行兩者。測試程式 `tests/audit.mjs --baseline` 可對未修改的舊版成品記錄基準，結果在 `test-results/`。
+`npm test` 可手動執行完整功能驗收及安全／效能回歸；`npm audit` 查核鎖定依賴的已知弱點。日常修改與 CI 依 [測試政策](TESTING.md) 執行受影響範圍，依賴變更才加跑弱點掃描。測試程式 `tests/audit.mjs --baseline` 可對未修改的舊版成品記錄基準，結果在 `test-results/`。
 
 `npm run benchmark:startup` 可測量三次冷啟動中位數（gzip、5 Mbps、50 ms 延遲、CPU 四倍降速），產生 `startup-results.json`。若將舊版完整網站放在 `test-results/startup-baseline/`，會交錯比較兩版；測量指標為閱讀器顯示且標題已插入 DOM 的時間，並非全部圖表完成或實際繪製到螢幕的時間。

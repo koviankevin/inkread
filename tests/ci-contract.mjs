@@ -3,118 +3,110 @@ import {readFile} from 'node:fs/promises';
 import {runInNewContext} from 'node:vm';
 import {test} from 'node:test';
 import {parse} from 'yaml';
+import './test-plan.mjs';
 
 const root = new URL('../', import.meta.url);
 const pages = parse(await readFile(new URL('.github/workflows/pages.yml', root), 'utf8'));
 const compatibility = parse(await readFile(new URL('.github/workflows/compatibility.yml', root), 'utf8'));
-const pkg = JSON.parse(await readFile(new URL('package.json', root), 'utf8'));
 const lock = JSON.parse(await readFile(new URL('package-lock.json', root), 'utf8'));
-const action = (job, name) => job.steps.find(step => step.uses?.startsWith(`${name}@`));
-const commands = job => job.steps.filter(step => step.run).map(step => step.run);
-const results = ['success', 'failure', 'cancelled', 'skipped'];
-
-// Evaluate the condition read from YAML, rather than a second copy of the gate.
-function allowsDeploy(workflow, build, compat, event = 'push', ref = 'refs/heads/main', cancelled = false) {
-  const expression = workflow.jobs.deploy.if.trim().replace(/^\$\{\{\s*|\s*\}\}$/g, '');
-  return runInNewContext(expression, {
-    github: {event_name: event, ref},
-    needs: {build: {result: build}, compatibility: {result: compat}},
-    cancelled: () => cancelled,
-    success: () => !cancelled && build === 'success' && compat === 'success',
+const statuses = ['success', 'failure', 'cancelled', 'skipped'];
+const action = (job, name) => job.steps.find(s => s.uses?.startsWith(`${name}@`));
+function deployAllowed(p, status, event, ref, cancelled) {
+  return runInNewContext(p.jobs.deploy.if.trim().replace(/^\$\{\{\s*|\s*\}\}$/g, ''), {
+    github: {event_name: event, ref}, needs: {validated: {result: status}}, cancelled: () => cancelled,
   }, {timeout: 100});
 }
-
+function validationAllowed(p, plan, build, browser, required) {
+  const script = p.jobs.validated.steps[0].run.trim().split('\n').slice(1, -1).join('\n');
+  try {
+    runInNewContext(script, {process: {env: {PLAN_RESULT: plan, BUILD_RESULT: build, BROWSER_RESULT: browser, BROWSER_REQUIRED: required}}}, {timeout: 100});
+    return true;
+  } catch { return false; }
+}
 function contract(p, c) {
   assert.deepEqual(Object.keys(p.on).sort(), ['pull_request', 'push', 'workflow_dispatch']);
   assert.deepEqual(p.on.push.branches, ['main']);
+  assert.equal(p.on.workflow_dispatch.inputs.full.default, false);
   assert.deepEqual(Object.keys(c.on), ['workflow_call']);
-  assert.deepEqual(Object.keys(p.jobs).sort(), ['build', 'compatibility', 'deploy']);
-  assert.deepEqual(Object.keys(c.jobs), ['library']);
-  assert.equal(p.jobs.compatibility.uses, './.github/workflows/compatibility.yml');
-  assert.equal(p.jobs.compatibility.if, undefined);
-  assert.equal(c.concurrency, undefined); // Caller owns cancellation; no self-cancellation.
-  assert.deepEqual(p.concurrency, {group: 'pages-${{ github.ref }}', 'cancel-in-progress': true});
+  assert.deepEqual(Object.keys(p.jobs).sort(), ['build', 'compatibility', 'deploy', 'plan', 'validated']);
   assert.deepEqual(p.permissions, {contents: 'read'});
   assert.deepEqual(c.permissions, {contents: 'read'});
+  assert.deepEqual(p.jobs.plan.permissions, {contents: 'read', actions: 'read', 'pull-requests': 'read'});
   assert.deepEqual(p.jobs.deploy.permissions, {contents: 'read', pages: 'write', 'id-token': 'write'});
-  assert.deepEqual(p.jobs.deploy.needs, ['build', 'compatibility']);
-  assert.deepEqual(c.jobs.library.strategy, {'fail-fast': false, matrix: {browser: ['firefox', 'webkit']}});
-  assert.equal(c.jobs.library['runs-on'], 'ubuntu-24.04');
-  assert.equal(p.jobs.build['runs-on'], 'ubuntu-24.04');
+  assert.equal(p.jobs.plan.steps[0].with['fetch-depth'], 0);
+  assert.equal(p.jobs.plan.steps.at(-1).run, 'node scripts/test-plan.mjs');
+  assert.equal(p.jobs.plan.steps.at(-1).env.GITHUB_TOKEN, '${{ github.token }}');
+  for (const key of ['reuse', 'ci', 'audit', 'browser', 'browsers', 'chromium', 'compatible']) {
+    assert.equal(p.jobs.plan.outputs[key], '${{ steps.plan.outputs.' + key + ' }}');
+  }
+  assert.equal(p.jobs.build.needs, 'plan');
+  assert.deepEqual(p.jobs.compatibility.needs, ['plan', 'build']);
+  assert.equal(p.jobs.compatibility.if, "needs.plan.outputs.browser == 'true'");
+  assert.equal(p.jobs.compatibility.uses, './.github/workflows/compatibility.yml');
+  for (const key of ['browsers', 'chromium', 'compatible']) {
+    assert.equal(p.jobs.compatibility.with[key], '${{ needs.plan.outputs.' + key + ' }}');
+    assert.deepEqual(c.on.workflow_call.inputs[key], {type: 'string', required: true});
+  }
+  assert.deepEqual(p.jobs.validated.needs, ['plan', 'build', 'compatibility']);
+  assert.equal(p.jobs.validated.if, '${{ always() }}');
+  assert.deepEqual(p.jobs.validated.steps[0].env, {
+    PLAN_RESULT: '${{ needs.plan.result }}', BUILD_RESULT: '${{ needs.build.result }}',
+    BROWSER_REQUIRED: '${{ needs.plan.outputs.browser }}', BROWSER_RESULT: '${{ needs.compatibility.result }}',
+  });
+  assert.deepEqual(p.jobs.deploy.needs, ['validated']);
+  assert.deepEqual(c.jobs.library.strategy, {'fail-fast': false, matrix: {browser: '${{ fromJSON(inputs.browsers) }}'}});
   assert.deepEqual(c.jobs.library.container, {
     image: `mcr.microsoft.com/playwright:v${lock.packages['node_modules/playwright-core'].version}-noble@sha256:47b510dd9230bf0b9bfc9b20102241e577ea7a99334ab4c3ca19f19770e9b8ea`,
     options: '--init --shm-size=1gb --user 1001',
   });
-  assert.equal(p.jobs.build['timeout-minutes'], 35);
-  assert.equal(c.jobs.library['timeout-minutes'], 35);
   assert.equal(c.jobs.library.env.INKREAD_BROWSER, '${{ matrix.browser }}');
-  for (const job of [p.jobs.build, p.jobs.compatibility, c.jobs.library]) {
+  assert.equal(c.jobs.library.env.INKREAD_TEST_SUITES, "${{ matrix.browser == 'chromium' && inputs.chromium || inputs.compatible }}");
+  assert.deepEqual(c.jobs.library.steps.filter(s => s.run).map(s => s.run), ['npm ci', 'npm run build', 'node scripts/run-selected.mjs']);
+  for (const job of [p.jobs.plan, p.jobs.build, c.jobs.library]) {
+    assert.equal(job['runs-on'], 'ubuntu-24.04');
     assert.equal(job.if, undefined);
+    assert.equal(action(job, 'actions/checkout').with.ref, '${{ github.event.pull_request.head.sha || github.sha }}');
+  }
+  for (const job of [p.jobs.build, c.jobs.library]) assert.equal(job['timeout-minutes'], 35);
+  for (const job of [...Object.values(p.jobs), ...Object.values(c.jobs)]) {
     assert.equal(job['continue-on-error'], undefined);
-    assert.equal(job.permissions, undefined);
-    for (const step of job.steps ?? []) {
-      assert.equal(step['continue-on-error'], undefined);
-      if (step.run) assert.equal(step.if, undefined);
-    }
+    for (const step of job.steps ?? []) assert.equal(step['continue-on-error'], undefined);
   }
-  for (const job of [p.jobs.build, c.jobs.library]) {
-    assert.deepEqual(action(job, 'actions/checkout').with, {ref: '${{ github.sha }}'});
-    assert.equal(job.steps[0].uses, 'actions/checkout@v4');
-    const report = action(job, 'actions/upload-artifact');
-    assert.equal(report.if, 'always()');
-    assert.equal(report.with.path, 'test-results/');
-    assert.equal(report.with['retention-days'], 7);
-  }
-  assert.deepEqual(commands(p.jobs.build), [
-    'npm ci', 'npm run test:ci', 'npm audit --audit-level=low',
-    'npx playwright-core install --with-deps chromium', 'npm run build', 'npm test',
-    'cd dist && zip -r inkread-offline.zip .',
-  ]);
-  assert.deepEqual(commands(c.jobs.library), [
-    'npm ci', 'npm run build', 'npm run test:compat',
-  ]);
+  const ci = p.jobs.build.steps.find(s => s.run === 'npm run test:ci');
+  assert.equal(ci.if, "needs.plan.outputs.ci == 'true'");
+  assert.equal(p.jobs.build.steps.find(s => s.run === 'npm audit --audit-level=low').if, "needs.plan.outputs.audit == 'true'");
+  assert.equal(p.jobs.build.steps.some(s => s.run === 'npm test'), false);
   const upload = action(p.jobs.build, 'actions/upload-pages-artifact');
   assert.deepEqual(upload.with, {path: 'dist'});
-  assert.equal(upload.if, undefined); // Success-only upload after tests and ZIP.
+  assert.equal(upload.if, undefined);
   assert.equal(p.jobs.build.steps.at(-1), upload);
   assert.deepEqual(p.jobs.deploy.steps.map(s => s.uses), ['actions/configure-pages@v5', 'actions/deploy-pages@v4']);
-  assert.equal(action(p.jobs.deploy, 'actions/deploy-pages').with, undefined); // Current run, default artifact.
-  for (const build of results) for (const compat of results) {
-    for (const event of ['push', 'workflow_dispatch', 'pull_request', 'workflow_run']) {
-      for (const ref of ['refs/heads/main', 'refs/heads/topic', 'refs/pull/3/merge']) {
-        const expected = build === 'success' && compat === 'success' && ref === 'refs/heads/main' && ['push', 'workflow_dispatch'].includes(event);
-        assert.equal(allowsDeploy(p, build, compat, event, ref), expected, `${build}/${compat}/${event}/${ref}`);
-        assert.equal(allowsDeploy(p, build, compat, event, ref, true), false);
-      }
+  assert.equal(p.jobs.deploy.steps.at(-1).with, undefined);
+  for (const plan of statuses) for (const build of statuses) for (const browser of statuses) {
+    for (const required of ['true', 'false', '', 'unknown']) {
+      assert.equal(validationAllowed(p, plan, build, browser, required), plan === 'success' && build === 'success' && (required === 'true' && browser === 'success' || required === 'false' && browser === 'skipped'));
+    }
+  }
+  for (const status of statuses) for (const event of ['push', 'workflow_dispatch', 'pull_request', 'workflow_run']) {
+    for (const ref of ['refs/heads/main', 'refs/heads/topic', 'refs/pull/3/merge']) for (const cancelled of [false, true]) {
+      assert.equal(deployAllowed(p, status, event, ref, cancelled), !cancelled && status === 'success' && ref === 'refs/heads/main' && ['push', 'workflow_dispatch'].includes(event));
     }
   }
 }
-
-test('release graph, source, artifacts and fail-closed deployment condition (384 scenarios)', () => {
-  contract(pages, compatibility);
-  assert.equal(pkg.scripts['test:ci'], 'node --test tests/ci-contract.mjs');
-  assert.equal(pkg.scripts['test:compat'], 'node tests/backup.mjs && node tests/merge.mjs && node tests/font-progress.mjs && node tests/reading-controls.mjs && node tests/media-switch.mjs && node tests/multitab-progress.mjs && node tests/checkpoint-storage.mjs && node tests/tab-selection.mjs && node tests/same-document-progress.mjs');
-  assert.equal(pkg.scripts.test.split(' && ').length, 14);
-});
-
+test('affected checks and current-run artifact gate (352 failure/skip/cancellation scenarios)', () => contract(pages, compatibility));
 const mutations = {
-  'missing compatibility prerequisite': (p) => { p.jobs.deploy.needs = ['build']; },
-  'failure allowed by gate': (p) => { p.jobs.deploy.if = "${{ !cancelled() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}"; },
-  'PR deployment allowed': (p) => { p.jobs.deploy.if = "${{ !cancelled() && needs.build.result == 'success' && needs.compatibility.result == 'success' }}"; },
-  'cancelled run allowed': (p) => { p.jobs.deploy.if = p.jobs.deploy.if.replace('!cancelled() &&', ''); },
-  'stale reusable workflow': (p) => { p.jobs.compatibility.uses += '@main'; },
-  'stale source checkout': (p) => { p.jobs.build.steps[0].with.ref = 'main'; },
-  'independent main trigger': (_, c) => { c.on.push = {branches: ['main']}; },
-  'skipped compatibility job': (_, c) => { c.jobs.library.if = 'false'; },
-  'ignored compatibility failure': (_, c) => { c.jobs.library['continue-on-error'] = true; },
-  'ignored test failure': (_, c) => { c.jobs.library.steps.find(s => s.run === 'npm run test:compat')['continue-on-error'] = true; },
-  'missing WebKit': (_, c) => { c.jobs.library.strategy.matrix.browser = ['firefox']; },
-  'artifact from another run': (p) => { p.jobs.deploy.steps.at(-1).with = {artifact_name: 'old-pages'}; },
+  'missing prerequisite': p => { p.jobs.validated.needs = ['build']; },
+  'skipped tests accepted': p => { p.jobs.validated.steps[0].run = "node <<'JS'\ntrue\nJS"; },
+  'PR deployment': p => { p.jobs.deploy.if = "${{ !cancelled() && needs.validated.result == 'success' }}"; },
+  'cancelled deployment': p => { p.jobs.deploy.if = p.jobs.deploy.if.replace('!cancelled() &&', ''); },
+  'wrong source': p => { p.jobs.build.steps[0].with.ref = 'main'; },
+  'ignored failure': (_, c) => { c.jobs.library['continue-on-error'] = true; },
+  'unconditional full suite': p => { p.jobs.build.steps.push({run: 'npm test'}); },
+  'foreign Pages artifact': p => { p.jobs.deploy.steps.at(-1).with = {artifact_name: 'old-pages'}; },
+  'unbound browser plan': p => { p.jobs.compatibility.with.browsers = '["chromium"]'; },
 };
-for (const [name, mutate] of Object.entries(mutations)) {
-  test(`rejects ${name}`, () => {
-    const p = structuredClone(pages), c = structuredClone(compatibility);
-    mutate(p, c);
-    assert.throws(() => contract(p, c), assert.AssertionError);
-  });
-}
+for (const [name, mutate] of Object.entries(mutations)) test(`rejects ${name}`, () => {
+  const p = structuredClone(pages), c = structuredClone(compatibility);
+  mutate(p, c);
+  assert.throws(() => contract(p, c), assert.AssertionError);
+});
