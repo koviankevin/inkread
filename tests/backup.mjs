@@ -12,13 +12,15 @@ await rm(path.join(output,'backup-failure.json'),{force:true});
 const temporary=await mkdtemp(path.join(output,'backup-test-'));
 const results=[],errors=[];
 const pass=name=>{results.push(name);console.log(`PASS ${name}`);};
-const position={path:'中文/筆記.md',y:120,ratio:.2,fraction:.3,anchor:'章節',atEnd:false,updatedAt:Date.now()};
+const position={path:'中文/筆記.md',y:120,ratio:.2,fraction:.3,anchor:'章節',fontSize:16,atEnd:false,updatedAt:Date.now()};
 const snapshot={documents:[{path:position.path,source:'# 中文\n\n<script>attack()</script>',pasted:true}],assets:[{path:'中文/圖.png',blob:new Blob([new Uint8Array([0,1,128,255])],{type:'image/png'})}],positions:[position],current:position.path};
 const encoded=await encodeBackup(snapshot),decoded=await decodeBackup(encoded);
 assert.equal(decoded.documents[0].source,snapshot.documents[0].source);
 assert.equal(decoded.documents[0].pasted,true);
 assert.deepEqual(new Uint8Array(await decoded.assets[0].blob.arrayBuffer()),new Uint8Array([0,1,128,255]));
 assert.deepEqual(decoded.positions,[position]);
+const legacySnapshot={...snapshot,positions:[{...position}]};delete legacySnapshot.positions[0].fontSize;
+assert.deepEqual((await decodeBackup(await encodeBackup(legacySnapshot))).positions,legacySnapshot.positions);
 assert.equal(decoded.current,position.path);
 pass('Portable binary backup preserves UTF-8, original image bytes and progress without base64');
 
@@ -36,7 +38,7 @@ const badHeader=new Uint8Array(44); badHeader.set([73,78,75,82,69,65,68,0]); new
 await assert.rejects(()=>decodeBackup(new Blob([badHeader])));
 assert(MAX_BACKUP_BYTES<123*1024*1024);
 pass('Corrupt, truncated, trailing, unsupported and oversized backups fail before restoration');
-for (const change of [m=>m.documents[0].path='../../escape.md',m=>m.documents[0].path='範例/開始閱讀.md',m=>m.documents.push({...m.documents[0]}),m=>m.positions[0].ratio=2,m=>m.positions.push({...m.positions[0]}),m=>m.assets[0].path='payload.html',m=>m.assets[0].path='payload.constructor',m=>m.current='unknown.md',m=>Object.assign(m.documents[0],{linkBase:'safe.md',linkTargets:[]}),m=>{m.version=2;Object.assign(m.documents[0],{linkBase:'safe.md',linkTargets:[['image.svg','../../escape.svg']]});},m=>{m.version=2;Object.assign(m.documents[0],{linkBase:'safe.md',linkTargets:[['image.svg','one.svg'],['image.svg','two.svg']]});}]) await assert.rejects(async()=>decodeBackup(await rewrite(change)));
+for (const change of [m=>m.documents[0].path='../../escape.md',m=>m.documents[0].path='範例/開始閱讀.md',m=>m.documents.push({...m.documents[0]}),m=>m.positions[0].ratio=2,...[null,12,23,16.5,'16',{}].map(fontSize=>m=>m.positions[0].fontSize=fontSize),m=>m.positions.push({...m.positions[0]}),m=>m.assets[0].path='payload.html',m=>m.assets[0].path='payload.constructor',m=>m.current='unknown.md',m=>Object.assign(m.documents[0],{linkBase:'safe.md',linkTargets:[]}),m=>{m.version=2;Object.assign(m.documents[0],{linkBase:'safe.md',linkTargets:[['image.svg','../../escape.svg']]});},m=>{m.version=2;Object.assign(m.documents[0],{linkBase:'safe.md',linkTargets:[['image.svg','one.svg'],['image.svg','two.svg']]});}]) await assert.rejects(async()=>decodeBackup(await rewrite(change)));
 pass('Untrusted manifests reject unsafe paths, duplicate entries, invalid progress and non-image assets');
 
 const fixture=path.join(temporary,'books'); await mkdir(path.join(fixture,'assets'),{recursive:true});
