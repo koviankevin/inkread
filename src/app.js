@@ -40,6 +40,7 @@ let renderAllFeatures = () => Promise.resolve();
 let activeHeadings = [];
 let headingPositions = [];
 let readingBlocks = [], blockPositions = [], layoutWidth = 0, layoutHeight = 0;
+let restoredBlock;
 let tocLinks = [];
 let activeHeadingIndex = -1;
 let measureHeadings = true;
@@ -94,7 +95,10 @@ function rememberPosition() {
   const y=window.scrollY, end=document.documentElement.scrollHeight;
   const index=Math.max(0,activeHeadingIndex), top=headingPositions[index];
   const height=Math.max(1,(headingPositions[index+1] || end) - (top || 0));
-  const block=cachedReadingBlock(y+150);
+  // Keep the logical fraction across programmatic restores. Some engines round
+  // scrollTo down to a pixel; repeatedly measuring it would accumulate drift.
+  if(restoredBlock && (restoredBlock.version!==renderVersion || Math.abs(restoredBlock.y-y)>.5)) restoredBlock=undefined;
+  const block=restoredBlock?.block || cachedReadingBlock(y+150);
   const position={path:current.path,revision:current.revision,y,ratio:y/Math.max(1,end-window.innerHeight),anchor:activeHeadings[index]?.id || '',fraction:Math.max(0,Math.min(1,(y+150-(top || 0))/height)),fontSize,...(block ? {block} : {}),atEnd:y+window.innerHeight>=end-5,updatedAt:Date.now()};
   const previous=readingPositions.get(current.path);
   if (previous && previous.fontSize===fontSize && previous.block?.index===block?.index && previous.block?.gap===block?.gap && Math.abs((previous.block?.fraction || 0)-(block?.fraction || 0))<1e-6 && Math.abs(previous.y-y)<1 && previous.anchor===position.anchor && previous.atEnd===position.atEnd && Math.abs(previous.fraction-position.fraction)<1e-6 && Math.abs(previous.ratio-position.ratio)<1e-6) return;
@@ -386,6 +390,7 @@ async function resumePosition(position,task) {
     const max=Math.max(0,document.documentElement.scrollHeight-innerHeight);
     const target=point ? blockTarget(point) : targetAtSize();
     window.scrollTo({top:position.atEnd ? max : Math.max(0,Math.min(max,target)),behavior:'instant'});
+    if(element && !position.atEnd) restoredBlock={version:renderVersion,y:scrollY,block:position.block};
   } catch {
     if (resumeTask===task && task.version===renderVersion) window.scrollTo({top:position.y,behavior:'instant'});
   } finally {
@@ -607,6 +612,7 @@ function updateProgress() {
   if(saved && saved.revision===current.revision && saved.block && readingBlocks[saved.block.index]) {
     const max=Math.max(0,document.documentElement.scrollHeight-innerHeight);
     window.scrollTo({top:saved.atEnd ? max : Math.max(0,Math.min(max,blockTarget({element:readingBlocks[saved.block.index],fraction:saved.block.fraction,gap:saved.block.gap}))),behavior:'instant'});
+    if(!saved.atEnd) restoredBlock={version:renderVersion,y:scrollY,block:saved.block};
   }
   const top = window.scrollY + article.getBoundingClientRect().top;
   const length = Math.max(1, article.offsetHeight - window.innerHeight + 100);
