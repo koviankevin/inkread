@@ -7,7 +7,20 @@ export function createLibraryStore(onClear=()=>{}) {
   const scope = new URL('./',location.href).href;
   const name = `inkread-library:${scope}`;
   const checkpointKey = `${name}:checkpoint`;
+  const positionKey = (generation,path) => `${checkpointKey}:${generation}:${encodeURIComponent(path)}`;
   let connection, epoch, queue = Promise.resolve(), channel;
+  function checkpointKeys() {
+    try { return Object.keys(localStorage).filter(key=>key.startsWith(`${checkpointKey}:`)); }
+    catch { return []; }
+  }
+  function discardCheckpoints(keys) {
+    try {
+      localStorage.removeItem(checkpointKey);
+      // Captured before replacement: a new generation's keys cannot be removed
+      // if another tab already loaded and checkpointed the replacement.
+      for (const key of keys) localStorage.removeItem(key);
+    } catch { /* Optional shutdown checkpoints. */ }
+  }
   try {
     channel = new BroadcastChannel(name);
     channel.onmessage = event => {
@@ -97,6 +110,17 @@ export function createLibraryStore(onClear=()=>{}) {
       let checkpoint;
       try { checkpoint=JSON.parse(localStorage.getItem(checkpointKey)); } catch { /* Optional shutdown checkpoint. */ }
       if (checkpoint?.epoch !== epoch) checkpoint=undefined;
+      // Each document has its own synchronous shutdown slot. A single shared
+      // slot loses all but one tab when pending IDB writes are aborted on exit.
+      // Append candidates so existing validation can reject corrupt/stale rows
+      // without hiding a valid committed position. Work is bounded by documents.
+      for (const doc of documents) {
+        if (typeof doc.path!=='string') continue;
+        try {
+          const saved=JSON.parse(localStorage.getItem(positionKey(epoch,doc.path)));
+          if (saved?.epoch===epoch && saved.position?.path===doc.path) positions.push(saved.position);
+        } catch { /* A malformed optional checkpoint must not prevent loading. */ }
+      }
       return {documents,assets,positions,current,checkpoint,revision:revision ?? null};
     },
     write({documents=[],assets=[],positions=[],current}) {
@@ -114,10 +138,14 @@ export function createLibraryStore(onClear=()=>{}) {
       });
     },
     checkpoint(current,position) {
+      if (position && typeof epoch==='string') {
+        try { localStorage.setItem(positionKey(epoch,position.path),JSON.stringify({epoch,position})); }
+        catch { /* IDB and the legacy selection checkpoint remain independent. */ }
+      }
       try { localStorage.setItem(checkpointKey,JSON.stringify({epoch,current,position})); } catch { /* IDB still saves periodically. */ }
     },
     async replace({documents,assets,positions,current},expectedRevision) {
-      const next=newRevision();
+      const next=newRevision(),obsolete=checkpointKeys();
       // Clearing and all replacement records commit together, or all roll back.
       await mutate(tx=>{
         for (const store of ['documents','assets','positions','meta']) tx.objectStore(store).clear();
@@ -126,17 +154,17 @@ export function createLibraryStore(onClear=()=>{}) {
         tx.objectStore('meta').put(current,'current');
       },{expectedRevision});
       epoch=next;
-      try { localStorage.removeItem(checkpointKey); } catch { /* Optional checkpoint. */ }
+      discardCheckpoints(obsolete);
       channel?.postMessage({type:'clear',epoch});
     },
     async clear() {
-      const next = newRevision();
+      const next = newRevision(),obsolete=checkpointKeys();
       await mutate(tx=>{
         for (const store of ['documents','assets','positions','meta']) tx.objectStore(store).clear();
         tx.objectStore('meta').put(next,'epoch');
       },{reset:true});
       epoch=next;
-      try { localStorage.removeItem(checkpointKey); } catch { /* No checkpoint to clear. */ }
+      discardCheckpoints(obsolete);
       channel?.postMessage({type:'clear',epoch});
     },
   };

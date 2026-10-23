@@ -65,6 +65,9 @@ try{
     await new Promise((resolve,reject)=>{tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error);});db.close();
     const key=name+':checkpoint',checkpoint=JSON.parse(localStorage.getItem(key)||'null');
     if(checkpoint?.position){delete checkpoint.position.fontSize;delete checkpoint.position.block;localStorage.setItem(key,JSON.stringify(checkpoint));}
+    // Legacy releases had no per-document shutdown keys. Remove only these
+    // newly generated fixture records so the old-schema path is really tested.
+    for(const storedKey of Object.keys(localStorage))if(storedKey.startsWith(key+':'))localStorage.removeItem(storedKey);
     localStorage.removeItem('inkread-font-size-choice');
     if(localStorage.getItem('inkread-font-size')!=='16')throw Error('Legacy seed must be 16px');
   },url);
