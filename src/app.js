@@ -1047,10 +1047,11 @@ window.addEventListener('drop', async e => {
 });
 window.addEventListener('scroll',scheduleProgress,{passive:true});
 const cancelResume=event=>{
+  if (!resumeTask) return;
   // File navigation must leave the old restore pending until showDocument saves
   // its position; the temporary top-of-page layout is not a new reading choice.
-  if (event.target instanceof Element && event.target.closest('#sidebar,#sidebar-toggle,#open-button,dialog')) return;
-  if (resumeTask) { resumeTask=undefined; renderLibraryStatus(); }
+  if (event.target instanceof Element && event.target.closest('#sidebar,#sidebar-toggle,#open-button,dialog,#document a[href]:not([href^="#"])')) return;
+  resumeTask=undefined; renderLibraryStatus();
 };
 window.addEventListener('wheel',cancelResume,{passive:true});
 window.addEventListener('touchstart',cancelResume,{passive:true});
