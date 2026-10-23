@@ -47,8 +47,8 @@ The focused library and progress suites run in the Firefox/WebKit matrix; they d
 the general rendering, security, lazy-loading or cache-repair suites.
 
 `pages.yml` calls `compatibility.yml` as a local reusable workflow at the same
-commit. Its Firefox/WebKit jobs retain the 25-minute ceiling and no fail-fast;
-the Pages build retains the full Chromium suite (25-minute ceiling). These jobs
+commit. Its Firefox/WebKit jobs use a bounded 35-minute ceiling and no fail-fast;
+the Pages build retains the full Chromium suite (35-minute ceiling). These jobs
 run in parallel. There is no second independent main/PR compatibility trigger
 and no duplicate Chromium run.
 
@@ -150,3 +150,5 @@ The regression was observed in Linux Playwright WebKit; Safari/iOS behavior is
 not inferred from that result.
 
 The stored-library security fixture supplies the old shared selection and clears any current per-tab file fragment before reloading. Otherwise a legitimate guide bookmark would take precedence over the injected shared selection. Its existing unsafe-path, oversize, sanitization, remote-image and stale-revision assertions remain unchanged. Invalidated tabs must retain their actual file URLs while showing a temporary guide; the selection suite checks this before reload and then verifies safe fallback.
+
+The bounded job deadline increased from 25 to 35 minutes after two Firefox attempts spent 19m33s and 21m58s downloading 55.3 MB of Ubuntu dependencies, leaving only 87/90 and 49/90 completed assertions before cancellation. All original commands, precision, deploy prerequisites and permissions remain. The contract now asserts the fixed 35-minute limit as well as its existing 384 deploy scenarios and mutation cases.

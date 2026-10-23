@@ -38,6 +38,8 @@ function contract(p, c) {
   assert.deepEqual(p.jobs.deploy.permissions, {contents: 'read', pages: 'write', 'id-token': 'write'});
   assert.deepEqual(p.jobs.deploy.needs, ['build', 'compatibility']);
   assert.deepEqual(c.jobs.library.strategy, {'fail-fast': false, matrix: {browser: ['firefox', 'webkit']}});
+  assert.equal(p.jobs.build['timeout-minutes'], 35);
+  assert.equal(c.jobs.library['timeout-minutes'], 35);
   assert.equal(c.jobs.library.env.INKREAD_BROWSER, '${{ matrix.browser }}');
   for (const job of [p.jobs.build, p.jobs.compatibility, c.jobs.library]) {
     assert.equal(job.if, undefined);
