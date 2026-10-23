@@ -85,8 +85,8 @@ function contract(p, c) {
 test('release graph, source, artifacts and fail-closed deployment condition (384 scenarios)', () => {
   contract(pages, compatibility);
   assert.equal(pkg.scripts['test:ci'], 'node --test tests/ci-contract.mjs');
-  assert.equal(pkg.scripts['test:compat'], 'node tests/backup.mjs && node tests/merge.mjs && node tests/font-progress.mjs && node tests/reading-controls.mjs && node tests/media-switch.mjs && node tests/multitab-progress.mjs && node tests/checkpoint-storage.mjs');
-  assert.equal(pkg.scripts.test.split(' && ').length, 12);
+  assert.equal(pkg.scripts['test:compat'], 'node tests/backup.mjs && node tests/merge.mjs && node tests/font-progress.mjs && node tests/reading-controls.mjs && node tests/media-switch.mjs && node tests/multitab-progress.mjs && node tests/checkpoint-storage.mjs && node tests/tab-selection.mjs');
+  assert.equal(pkg.scripts.test.split(' && ').length, 13);
 });
 
 const mutations = {

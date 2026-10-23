@@ -18,7 +18,7 @@ for(const b of books){
  parts.push(body);await writeFile(path.join(folder,b.name+'.md'),parts.join('\n\n'));
 }
 const server=await serveSites({reader:process.env.INKREAD_TEST_DIST||path.join(root,'dist')});const url=process.env.INKREAD_TEST_SITE||server.origin+'/reader/';
-const expected={},results=[],evidence=[],errors=[],live=[];let context,pages=[];
+const expected={},results=[],evidence=[],errors=[],live=[],addresses={};let context,pages=[];
 const options={headless:true,viewport:{width:1440,height:900},...(!compatibility&&process.env.CHROMIUM_PATH?{executablePath:process.env.CHROMIUM_PATH}:{})};
 const file=(p,name)=>p.locator('#user-files button').filter({hasText:new RegExp('^'+name+'\\.md$')});
 const point=p=>p.evaluate(()=>{const e=[...document.querySelectorAll('#document p')].find(e=>/^PARA-/.test(e.textContent)&&e.getBoundingClientRect().top<=150&&e.getBoundingClientRect().bottom>150),r=e?.getBoundingClientRect();return {paragraph:e?.textContent.match(/^PARA-\d+/)?.[0],fraction:r?(150-r.top)/r.height:null};});
@@ -63,8 +63,16 @@ async function holdStorage(p){
 async function closePage(p){const done=p.waitForEvent('close');await p.close({runBeforeUnload:true});await done;}
 async function closeAll(order){if(order==='simultaneous')await Promise.all(pages.map(closePage));else for(const i of order)await closePage(pages[i]);pages=[];await context.close();context=undefined;}
 async function verifyRecovery(phase){
- await launch(true);const p=await page(true);for(const b of books){await select(p,b);const actual=await point(p);same(actual,expected[b.name],phase+' '+b.name);results.push(phase+': '+b.name);evidence.push({phase,name:b.name,expected:expected[b.name],actual});console.log('PASS '+results.at(-1));await p.screenshot({path:path.join(output,browserName+'-'+phase+'-'+b.name+'.png')});}
- await select(p,books[0]);pages=[p];for(const b of books.slice(1)){const q=await page(true);await select(q,b);pages.push(q);}
+ await launch(true);pages=[];
+ for(const b of books){
+  // Reopen the real URL retained by this tab, without clicking a library file.
+  const p=await context.newPage();await p.goto(addresses[b.name],{waitUntil:'domcontentloaded'});
+  await p.locator('#app:not([hidden])').waitFor();assert((await p.locator('.version').textContent()).includes('v'+version));
+  assert.equal(await p.evaluate(()=>navigator.onLine),false);await media(p,b);await saved(p);
+  const actual=await point(p);same(actual,expected[b.name],phase+' automatic '+b.name);
+  pages.push(p);results.push(phase+': '+b.name);evidence.push({phase,name:b.name,url:p.url(),expected:expected[b.name],actual});
+  console.log('PASS '+results.at(-1));await p.screenshot({path:path.join(output,browserName+'-'+phase+'-'+b.name+'.png')});
+ }
 }
 try{
  await launch();const p=await page();await p.locator('#offline-status[data-state=ready]').waitFor({timeout:120000});await p.locator('#folder-input').setInputFiles(folder);await p.waitForFunction(()=>document.querySelectorAll('#user-files button').length===4);
@@ -79,10 +87,11 @@ try{
   }
   const before=await Promise.all(pages.map(async(q,i)=>({name:books[i].name,point:await point(q),state:await q.locator('#library-status').getAttribute('data-state'),visibility:await q.evaluate(()=>document.visibilityState)})));
   for(const x of before)same(x.point,expected[x.name],phase+' before close '+x.name);live.push({phase,pages:before});
-  if(phase==='simultaneous')assert(before.some(x=>x.state==='saving'),'Immediate concurrent closure must start before all periodic writes have finished');
+  if(phase==='simultaneous')assert(before.every(x=>x.state==='saving'),'All four document saves must still be queued at concurrent closure');
+  for(let i=0;i<books.length;i++)addresses[books[i].name]=pages[i].url();
   await closeAll(order);await verifyRecovery(phase);
  }
  assert.equal(results.length,12);assert.deepEqual(errors,[]);
- await writeFile(path.join(output,browserName+'-results.json'),JSON.stringify({browser:browserName,version,site:url,passed:results.length,results,evidence,live,errors,tabs:4,offlineMethod:'native context.setOffline(true) before navigation after full persistent browser restart',note:'No app storage writes or save calls from test hooks; the simultaneous phase holds a real IDB transaction with GET requests only, keeping periodic writes queued until all reader pages close. Input acknowledgment is observation only. Each recovery selects all four documents to check their own progress; automatic per-tab file-session restoration is not claimed.'},null,2));
+ await writeFile(path.join(output,browserName+'-results.json'),JSON.stringify({browser:browserName,version,site:url,passed:results.length,results,evidence,live,errors,tabs:4,offlineMethod:'native context.setOffline(true) before navigation after full persistent browser restart',note:'No app storage writes or save calls from test hooks; the simultaneous phase holds a real IDB transaction with GET requests only, keeping periodic writes queued until all reader pages close. Input acknowledgment is observation only. Each recovery reopens the actual URL retained by each tab; no library-file selection or application-storage injection occurs after restart.'},null,2));
 }catch(e){await writeFile(path.join(output,browserName+'-failure.json'),JSON.stringify({error:e.stack,results,evidence,live,errors,expected},null,2));await context?.pages().at(-1)?.screenshot({path:path.join(output,browserName+'-failure.png')}).catch(()=>{});throw e;}
 finally{await context?.close();await server.close();assert(path.resolve(temporary).startsWith(path.resolve(os.tmpdir())+path.sep));await rm(temporary,{recursive:true,force:true,maxRetries:5,retryDelay:200});}
