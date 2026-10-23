@@ -1,6 +1,6 @@
 {
   "name": "inkread-markdown-viewer",
-  "version": "1.7.4",
+  "version": "1.7.5",
   "license": "MIT",
   "engines": {
     "node": ">=22.12.0"
