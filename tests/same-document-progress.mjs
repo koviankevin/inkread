@@ -94,6 +94,7 @@ try{
  const pass=label=>{results.push(label);console.log('PASS '+label);};
  for(let i=0;i<pages.length;i++){await pages[i].reload({waitUntil:'domcontentloaded'});await media(pages[i],books[i]);await saved(pages[i]);same(await point(pages[i]),expected[books[i].name],'same-file reload '+i);}
  pass('Offline reload keeps all four same-file positions independent');
+ await pages[0].bringToFront();
  const writes=await pages[0].locator('#document p').filter({hasText:/^PARA-009 /}).evaluate(async e=>{
   const replace=history.replaceState;let calls=0;
   history.replaceState=function(...args){calls++;return replace.apply(this,args);};
