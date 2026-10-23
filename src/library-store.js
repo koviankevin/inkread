@@ -94,6 +94,7 @@ export function createLibraryStore(onClear=()=>{}) {
     });
   }
   return {
+    get epoch() { return epoch; },
     async load() {
       const previousEpoch=epoch;
       const db = await open();

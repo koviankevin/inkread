@@ -94,10 +94,17 @@ function tabDocumentPath() {
   // Fragments survive tab/session restoration without sending local filenames
   // to the server. They identify a saved document, never carry document bytes.
   if (!location.hash.startsWith('#inkread=')) return;
-  try { return decodeURIComponent(location.hash.slice(9)); } catch { /* Invalid bookmark. */ }
+  try { return decodeURIComponent(location.hash.slice(9).split('&position=')[0]); } catch { /* Invalid bookmark. */ }
 }
 function rememberTabDocument() {
-  try { history.replaceState(history.state,'',`#inkread=${encodeURIComponent(current.path)}`); }
+  try {
+    let hash=`#inkread=${encodeURIComponent(current.path)}`;
+    const position=readingPositions.get(current.path);
+    // Each tab owns its URL snapshot. No shared tab ID or last-writer slot can
+    // overwrite another reader, including duplicated tabs and full restarts.
+    if (!current.demo && position?.revision===current.revision && library.epoch) hash+=`&position=${encodeURIComponent(JSON.stringify({epoch:library.epoch,position:{...position,anchor:''}}))}`;
+    if (location.hash!==hash) history.replaceState(history.state,'',hash);
+  }
   catch { /* Reading and shared-library recovery still work if history is blocked. */ }
 }
 function rememberPosition() {
@@ -113,6 +120,7 @@ function rememberPosition() {
   const previous=readingPositions.get(current.path);
   if (previous && previous.fontSize===fontSize && previous.block?.index===block?.index && previous.block?.gap===block?.gap && Math.abs((previous.block?.fraction || 0)-(block?.fraction || 0))<1e-6 && Math.abs(previous.y-y)<1 && previous.anchor===position.anchor && previous.atEnd===position.atEnd && Math.abs(previous.fraction-position.fraction)<1e-6 && Math.abs(previous.ratio-position.ratio)<1e-6) return;
   readingPositions.set(current.path,position); dirtyPositions.set(current.path,position);
+  rememberTabDocument();
   selectForSaving();
 }
 function checkpointLibrary() {
@@ -170,10 +178,10 @@ async function hydrateLibrary(resume) {
     if (!path || path.startsWith('範例/') || !/\.(png|jpe?g|gif|webp|avif|svg|bmp|ico)$/i.test(path) || assetBlobs.has(path) || !(row.blob instanceof Blob) || row.blob.size>MAX_IMAGE_BYTES || total+row.blob.size>MAX_ASSET_BYTES) continue;
     assetBlobs.set(path,row.blob); assetSizes.set(path,row.blob.size); assets.set(path,URL.createObjectURL(row.blob)); total+=row.blob.size;
   }
-  const restorePosition=position=>{
+  const restorePosition=(position,tab=false)=>{
     const doc=position && documents.get(position.path);
     if (!doc || doc.demo || position.revision!==doc.revision || !Number.isFinite(position.y) || position.y<0 || !Number.isFinite(position.ratio) || position.ratio<0 || position.ratio>1 || !Number.isFinite(position.fraction) || position.fraction<0 || position.fraction>1 || typeof position.anchor!=='string' || position.anchor.length>1000 || !Number.isFinite(position.updatedAt)) return;
-    if (position.updatedAt>(readingPositions.get(doc.path)?.updatedAt || 0)) {
+    if (tab || position.updatedAt>(readingPositions.get(doc.path)?.updatedAt || 0)) {
       const b=position.block;
       if(b!==undefined && (!b || !Number.isInteger(b.index) || b.index<0 || b.index>1000000 || !Number.isFinite(b.fraction) || b.fraction<0 || b.fraction>1 || (b.gap!==undefined && (!Number.isFinite(b.gap) || b.gap<0 || b.gap>1000000)))) {
         position={...position}; delete position.block;
@@ -187,6 +195,13 @@ async function hydrateLibrary(resume) {
   };
   for (const position of saved.positions) restorePosition(position);
   restorePosition(saved.checkpoint?.position);
+  // Validate the tab's snapshot with the same bounds as stored progress. A
+  // cleared/replaced library or reimported file cannot revive an old position.
+  try {
+    const encoded=location.hash.split('&position=')[1];
+    const bookmark=encoded?.length<=4096 && JSON.parse(decodeURIComponent(encoded));
+    if (bookmark?.epoch===library.epoch && bookmark.position?.path===tabDocumentPath()) restorePosition(bookmark.position,true);
+  } catch { /* Invalid/old URLs safely use the saved document position. */ }
   const selected=(saved.checkpoint?.current?.updatedAt || 0)>(saved.current?.updatedAt || 0) ? saved.checkpoint.current : saved.current;
   libraryReady=true;
   const path=documents.has(tabDocumentPath()) ? tabDocumentPath() : selected?.path;
