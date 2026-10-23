@@ -110,6 +110,12 @@ function checkpointLibrary() {
   if (!resumeTask) updateProgress();
   library.checkpoint(pendingSelection || {path:current.path,updatedAt:Date.now()},readingPositions.get(current.path));
 }
+function saveOnExit() {
+  // A tab invalidated by another tab must not reload the library while leaving
+  // and checkpoint its temporary guide over the newly restored selection.
+  if (!libraryReady) return;
+  checkpointLibrary(); void flushLibrary();
+}
 function flushLibrary() {
   clearTimeout(saveTimer); saveTimer=undefined;
   if (libraryLoading || clearing) return Promise.resolve();
@@ -1057,15 +1063,15 @@ window.addEventListener('wheel',cancelResume,{passive:true});
 window.addEventListener('touchstart',cancelResume,{passive:true});
 window.addEventListener('pointerdown',cancelResume,{passive:true});
 window.addEventListener('keydown',event=>{ if (['ArrowDown','ArrowUp','PageDown','PageUp','Home','End',' '].includes(event.key)) cancelResume(event); });
-document.addEventListener('visibilitychange',()=>{ if (document.hidden) { checkpointLibrary(); void flushLibrary(); } });
-window.addEventListener('pagehide',()=>{ checkpointLibrary(); void flushLibrary(); });
+document.addEventListener('visibilitychange',()=>{ if (document.hidden) saveOnExit(); });
+window.addEventListener('pagehide',saveOnExit);
 const headingLayoutObserver=new ResizeObserver(() => { measureHeadings = true; scheduleProgress(); });
 headingLayoutObserver.observe($('document'));
 headingLayoutObserver.observe(document.querySelector('.offline-state'));
 let resizeTimer;
 window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { updateTables(); updateProgress(); },100); });
 window.addEventListener('beforeunload', () => {
-  checkpointLibrary(); void flushLibrary();
+  saveOnExit();
   for (const url of assets.values()) URL.revokeObjectURL(url);
 });
 
