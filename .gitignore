@@ -5,3 +5,4 @@ packages/
 *.zip
 .DS_Store
 .browser-cache/
+test-plan.json

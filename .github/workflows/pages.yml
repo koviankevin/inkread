@@ -4,49 +4,99 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      full:
+        description: Explicitly run every browser suite
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
   group: pages-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+    outputs:
+      reuse: ${{ steps.plan.outputs.reuse }}
+      ci: ${{ steps.plan.outputs.ci }}
+      audit: ${{ steps.plan.outputs.audit }}
+      browser: ${{ steps.plan.outputs.browser }}
+      browsers: ${{ steps.plan.outputs.browsers }}
+      chromium: ${{ steps.plan.outputs.chromium }}
+      compatible: ${{ steps.plan.outputs.compatible }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - id: plan
+        run: node scripts/test-plan.mjs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
   build:
+    needs: plan
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
       - run: npm ci
       - run: npm run test:ci
+        if: needs.plan.outputs.ci == 'true'
       - run: npm audit --audit-level=low
-      - run: npx playwright-core install --with-deps chromium
+        if: needs.plan.outputs.audit == 'true'
       - run: npm run build
-      - run: npm test
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: chromium-regression
-          path: test-results/
-          retention-days: 7
       - name: Package offline website
         run: cd dist && zip -r inkread-offline.zip .
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
   compatibility:
-    # A local reusable workflow uses this run's commit and contributes to needs.
+    needs: [plan, build]
+    if: needs.plan.outputs.browser == 'true'
     uses: ./.github/workflows/compatibility.yml
+    with:
+      browsers: ${{ needs.plan.outputs.browsers }}
+      chromium: ${{ needs.plan.outputs.chromium }}
+      compatible: ${{ needs.plan.outputs.compatible }}
+  validated:
+    if: ${{ always() }}
+    needs: [plan, build, compatibility]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require the selected checks
+        env:
+          PLAN_RESULT: ${{ needs.plan.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          BROWSER_REQUIRED: ${{ needs.plan.outputs.browser }}
+          BROWSER_RESULT: ${{ needs.compatibility.result }}
+        run: |
+          node <<'JS'
+          const e = process.env;
+          if (e.PLAN_RESULT !== 'success' || e.BUILD_RESULT !== 'success' ||
+              !(e.BROWSER_REQUIRED === 'true' && e.BROWSER_RESULT === 'success' ||
+                e.BROWSER_REQUIRED === 'false' && e.BROWSER_RESULT === 'skipped')) {
+            throw new Error('Selected validation did not succeed');
+          }
+          JS
   deploy:
-    # Fail closed for every required job, including skipped/cancelled results.
     if: >-
       ${{ !cancelled() && github.ref == 'refs/heads/main' &&
           (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
-          needs.build.result == 'success' && needs.compatibility.result == 'success' }}
+          needs.validated.result == 'success' }}
     permissions:
       contents: read
       pages: write
@@ -55,7 +105,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
-    needs: [build, compatibility]
+    needs: [validated]
     steps:
       - uses: actions/configure-pages@v5
       - uses: actions/deploy-pages@v4
