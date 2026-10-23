@@ -2,6 +2,8 @@
 
 讓 Markdown 回到好閱讀。繁體中文介面，支援本機文件、好讀的表格、Mermaid 圖表與 LaTeX 公式；所有文件在瀏覽器內處理。
 
+1.7.7 修正媒體尚未載入、原閱讀位置仍在復原時切換文件，可能把舊文件進度覆寫成頁首的問題。文件清單、手機側欄及鍵盤選檔會保留原定位；閱讀區的實際捲動仍可更新進度。選檔同時留下小型恢復紀錄，立即結束瀏覽器也能保留最後選取的文件。新增圖片、圖表、公式及混合文件的切換、快速往返、較晚完成載入與完整離線關閉重開測試，逐份核對自己的媒體、段落及段內比例。
+
 1.7.1 起，側欄優先顯示「我的文件」，三份內建教學收在下方預設收合的「使用範例」。需要時點一下展開；搜尋到範例名稱時會自動展開，清除搜尋後恢復原本收合狀態。
 
 1.7.6 讓閱讀工具列保持可見，手動加減字級時立即保留原段落及段內比例。另以 Chromium 原生 80%／125%／150%／200%／100% 縮放與完整離線重開驗證位置；字級 13–22、滑鼠與鍵盤操作皆有回歸測試。瀏覽器縮放測試使用隔離 Chromium，未宣稱 Firefox／WebKit 的原生縮放或手機實機驗收。
@@ -87,7 +89,9 @@ npm run dev
 CHROMIUM_PATH=/usr/bin/chromium npm test
 ```
 
-目前 v1.7.1 的 `package.json` 依下列順序執行七支測試程式，合計 **66 項檢查**。[v1.7.1 GitHub Actions #39529034913](https://github.com/koviankevin/inkread/actions/runs/39529034913) 對應功能提交 `52c0c6df3096fcd35dfcdc97ed361067b31f78ce`，在 Ubuntu／Playwright Chromium（Chrome for Testing 156.0.8078.4）全數通過。歷史 v1.7.0 提交 `6a87983eb1e85438084ecab81404aa8f0f592116` 的 [#39517473841](https://github.com/koviankevin/inkread/actions/runs/39517473841) 也獨立通過 66 項；兩次執行分開記錄，不能以舊版結果代替新版驗收。這些是文件整合前的發布基準；本次純文件合併後須以新 main 提交的 Actions 確認發布結果。
+目前 `npm test` 執行十支程式，共 **113 項功能檢查**；`npm run test:ci` 另有 13 項部署契約檢查。Firefox／Playwright WebKit 的 `test:compat` 各執行五支程式，共 65 項。新增 `tests/media-switch.mjs` 每引擎 12 項，使用真實斷網及持久設定檔完整重啟，比對兩份媒體文件各自的內容、圖片像素、圖表標籤、公式及原段落。手機觸控為 viewport／觸控模擬，WebKit 不代表 Safari 實機。
+
+歷史 v1.7.1 的 `package.json` 依下列順序執行七支測試程式，合計 **66 項檢查**。[v1.7.1 GitHub Actions #39529034913](https://github.com/koviankevin/inkread/actions/runs/39529034913) 對應功能提交 `52c0c6df3096fcd35dfcdc97ed361067b31f78ce`，在 Ubuntu／Playwright Chromium（Chrome for Testing 156.0.8078.4）全數通過。歷史 v1.7.0 提交 `6a87983eb1e85438084ecab81404aa8f0f592116` 的 [#39517473841](https://github.com/koviankevin/inkread/actions/runs/39517473841) 也獨立通過 66 項；兩次執行分開記錄，不能以舊版結果代替新版驗收。這些是歷史發布基準，新版須以對應 main 提交的 Actions 確認發布結果。
 
 | 分類 | 測試程式 | 通過／總數 |
 | :--- | :--- | ---: |
