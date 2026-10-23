@@ -40,9 +40,10 @@ function contract(p, c) {
   assert.deepEqual(p.jobs.deploy.needs, ['build', 'compatibility']);
   assert.deepEqual(c.jobs.library.strategy, {'fail-fast': false, matrix: {browser: ['firefox', 'webkit']}});
   assert.equal(c.jobs.library['runs-on'], 'ubuntu-24.04');
+  assert.equal(p.jobs.build['runs-on'], 'ubuntu-24.04');
   assert.deepEqual(c.jobs.library.container, {
     image: `mcr.microsoft.com/playwright:v${lock.packages['node_modules/playwright-core'].version}-noble@sha256:47b510dd9230bf0b9bfc9b20102241e577ea7a99334ab4c3ca19f19770e9b8ea`,
-    options: '--init --shm-size=1gb',
+    options: '--init --shm-size=1gb --user 1001',
   });
   assert.equal(p.jobs.build['timeout-minutes'], 35);
   assert.equal(c.jobs.library['timeout-minutes'], 35);
