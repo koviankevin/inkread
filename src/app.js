@@ -1063,7 +1063,10 @@ headingLayoutObserver.observe($('document'));
 headingLayoutObserver.observe(document.querySelector('.offline-state'));
 let resizeTimer;
 window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { updateTables(); updateProgress(); },100); });
-window.addEventListener('beforeunload', () => { for (const url of assets.values()) URL.revokeObjectURL(url); });
+window.addEventListener('beforeunload', () => {
+  checkpointLibrary(); void flushLibrary();
+  for (const url of assets.values()) URL.revokeObjectURL(url);
+});
 
 setTheme(preference('theme') === 'dark' ? 'dark' : 'light',false);
 const savedSize = Number(preference('font-size'));
