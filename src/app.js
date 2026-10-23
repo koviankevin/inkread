@@ -373,12 +373,13 @@ function setTheme(theme, rerender = true) {
   refreshIcons();
 }
 
-function setFont(size) {
+function setFont(size, manual = false) {
   fontSize = Math.min(22, Math.max(13,size));
   document.documentElement.style.setProperty('--reader-size', `${fontSize}px`);
   $('font-size').textContent = fontSize;
   $('font-minus').disabled = fontSize <= 13;
   $('font-plus').disabled = fontSize >= 22;
+  if (manual) preference('font-size-choice',String(fontSize));
   preference('font-size',String(fontSize));
   requestAnimationFrame(updateTables);
 }
@@ -873,8 +874,8 @@ $('help-button').addEventListener('click', () => $('help-dialog').showModal());
 for (const dialog of document.querySelectorAll('dialog')) dialog.addEventListener('click', e => { if (e.target === dialog && !(dialog.id==='restore-dialog' && restoreCommitting)) { const r = dialog.getBoundingClientRect(); if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) dialog.close(); } });
 $('brand-home').addEventListener('click', e => { e.preventDefault(); $('file-search').value = ''; showDocument(demoDocs[0]); });
 $('theme-toggle').addEventListener('click', () => setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'));
-$('font-minus').addEventListener('click', () => setFont(fontSize - 1));
-$('font-plus').addEventListener('click', () => setFont(fontSize + 1));
+$('font-minus').addEventListener('click', () => setFont(fontSize - 1, true));
+$('font-plus').addEventListener('click', () => setFont(fontSize + 1, true));
 $('print-button').addEventListener('click', async () => {
   $('print-button').disabled = true;
   await renderAllFeatures();
@@ -975,7 +976,11 @@ window.addEventListener('beforeunload', () => { for (const url of assets.values(
 
 setTheme(preference('theme') === 'dark' ? 'dark' : 'light',false);
 const savedSize = Number(preference('font-size'));
-setFont(Number.isFinite(savedSize) && savedSize >= 13 ? savedSize : 18);
+const chosenSize = Number(preference('font-size-choice'));
+const hasChosenSize = Number.isInteger(chosenSize) && chosenSize >= 13 && chosenSize <= 22;
+// Legacy versions saved the default on startup, without recording user intent.
+// Upgrade their 16px value once; explicit choices made since this version win.
+setFont(hasChosenSize ? chosenSize : savedSize !== 16 && Number.isFinite(savedSize) && savedSize >= 13 ? savedSize : 18);
 async function startReader() {
   try { await hydrateLibrary(true); } catch(error) { storageError=error; }
   libraryLoading=false;

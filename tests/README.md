@@ -1,5 +1,7 @@
 # Browser acceptance
 
+`tests/verify.mjs` 另驗證 1.7.3 字級遷移：以舊版 localStorage 的 16 升到 18、其他 13–22 字級保留、新版手動選回 16 後重開保留。初始化不建立手動選擇紀錄；無效手動資料不覆蓋可用偏好。
+
 `npm test` retains the seven existing Chromium suites (66 checks), including true
 Playwright offline emulation and full `file://` transfers. The Pages workflow runs
 this suite exactly once per PR, main push or manual dispatch.

@@ -58,6 +58,48 @@ try {
   page.on('request',recordRequest);
   await page.goto(`${base}/internal/inkread/`);
   await page.locator('#app:not([hidden])').waitFor();
+  // Seed real previous-version preferences, then reopen the built application.
+  async function reopenWithFont(saved, chosen) {
+    await page.evaluate(({saved,chosen}) => {
+      localStorage.removeItem('inkread-font-size');
+      localStorage.removeItem('inkread-font-size-choice');
+      if (saved !== null) localStorage.setItem('inkread-font-size',saved);
+      if (chosen !== null) localStorage.setItem('inkread-font-size-choice',chosen);
+    },{saved,chosen});
+    await page.reload();
+    await page.locator('#app:not([hidden])').waitFor();
+  }
+  for (const size of [13,14,15,17,18,19,20,21,22]) {
+    await reopenWithFont(String(size),null);
+    assert.equal(Number(await page.locator('#font-size').textContent()),size);
+  }
+  await reopenWithFont('16',null);
+  assert.equal(await page.locator('#font-size').textContent(),'18');
+  assert.equal(await page.evaluate(() => localStorage.getItem('inkread-font-size')),'18');
+  assert.equal(await page.evaluate(() => localStorage.getItem('inkread-font-size-choice')),null);
+  await page.reload();
+  await page.locator('#app:not([hidden])').waitFor();
+  assert.equal(await page.locator('#font-size').textContent(),'18');
+  await page.locator('#font-minus').click();
+  await page.locator('#font-minus').click();
+  await page.reload();
+  await page.locator('#app:not([hidden])').waitFor();
+  assert.equal(await page.locator('#font-size').textContent(),'16');
+  await reopenWithFont('16','invalid');
+  assert.equal(await page.locator('#font-size').textContent(),'18');
+  await reopenWithFont('16','17');
+  assert.equal(await page.locator('#font-size').textContent(),'17');
+  await reopenWithFont('16','16');
+  assert.equal(await page.locator('#font-size').textContent(),'16');
+  await page.locator('#font-plus').click();
+  await page.locator('#font-minus').click();
+  assert.equal(await page.evaluate(() => localStorage.getItem('inkread-font-size-choice')),'16');
+  await page.reload();
+  await page.locator('#app:not([hidden])').waitFor();
+  assert.equal(await page.locator('#font-size').textContent(),'16');
+  await reopenWithFont(null,null);
+  assert.equal(await page.locator('#font-size').textContent(),'18');
+  pass('Legacy 16 upgrades once to 18; other sizes and new manual 16 survive reopening');
   await page.locator('.mermaid-container').first().scrollIntoViewIfNeeded();
   await page.locator('.mermaid-container svg').first().waitFor({timeout:30000});
   await page.locator('[data-math-index], .katex').first().scrollIntoViewIfNeeded();
