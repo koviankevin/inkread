@@ -39,7 +39,7 @@ let featureObservers = [];
 let renderAllFeatures = () => Promise.resolve();
 let activeHeadings = [];
 let headingPositions = [];
-let readingBlocks = [], blockPositions = [], layoutWidth = 0, layoutHeight = 0, layoutTop = 0;
+let readingBlocks = [], blockPositions = [], layoutWidth = 0, layoutHeight = 0, layoutTop = 0, layoutArticleHeight = 0;
 let restoredBlock;
 let tocLinks = [];
 let activeHeadingIndex = -1;
@@ -611,15 +611,17 @@ function scheduleProgress() {
 function updateProgress() {
   const article = $('document');
   const top = window.scrollY + article.getBoundingClientRect().top;
+  const articleHeight=article.offsetHeight;
   const changed=layoutWidth!==innerWidth || layoutHeight!==innerHeight;
   const saved=changed && !resumeTask && displayedDocument===current && readingPositions.get(current.path);
-  if(changed || Math.abs(top-layoutTop)>.5) measureHeadings=true;
+  if(changed || Math.abs(top-layoutTop)>.5 || articleHeight!==layoutArticleHeight) measureHeadings=true;
   if (measureHeadings) {
     readingBlocks=documentBlocks();
     blockPositions=readingBlocks.map(el=>{const r=el.getBoundingClientRect();return {top:r.top+scrollY,height:r.height};});
     headingPositions = activeHeadings.map(heading => heading.getBoundingClientRect().top + window.scrollY);
     layoutWidth=innerWidth; layoutHeight=innerHeight;
     layoutTop=top;
+    layoutArticleHeight=articleHeight;
     measureHeadings = false;
   }
   if(saved && saved.revision===current.revision && saved.block && readingBlocks[saved.block.index]) {
@@ -627,7 +629,7 @@ function updateProgress() {
     window.scrollTo({top:saved.atEnd ? max : Math.max(0,Math.min(max,blockTarget({element:readingBlocks[saved.block.index],fraction:saved.block.fraction,gap:saved.block.gap}))),behavior:'instant'});
     if(!saved.atEnd) restoredBlock={version:renderVersion,y:scrollY,block:saved.block};
   }
-  const length = Math.max(1, article.offsetHeight - window.innerHeight + 100);
+  const length = Math.max(1, articleHeight - window.innerHeight + 100);
   const progress = Math.max(0, Math.min(100, (window.scrollY - top + 100) / length * 100));
   const finished = window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 5;
   const percent = finished ? 100 : Math.round(progress);
