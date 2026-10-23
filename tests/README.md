@@ -1,5 +1,9 @@
 # Browser acceptance
 
+`reading-controls.mjs` 也須覆蓋只改頁首高度、在 ResizeObserver 之前立即保存，檢查點的區塊與畫面段落必須相符，並驗證完整離線重開。一般捲動不可逐段量測；合併恢復的既有精度門檻不變。
+
+`library.mjs` 的模擬配額失敗／立即關閉案例，需比對原章節在視窗內的 offset，維持 8px 精度；保存或錯誤狀態列換行可令整頁 scrollY 改變而文字位置相同。不要用整頁絕對捲動值替代閱讀位置。
+
 `reading-controls.mjs` 以原生鍵盤／滑鼠按鈕測試手動13–22字級、反覆變化、真實捲動後重新保存、書末與完整離線重啟；調整後不重新捲回目標。Chromium 原生瀏覽器縮放另外透過一次性無額外權限 helper 的 chrome.tabs.setZoom，核對80/125/150/200/100%、內寬及DPR，含150%倍率保留及混合字級後離線重開。使用 Playwright bundled Chromium channel，需先 `npx playwright-core install chromium`；不以CSS zoom或viewport模擬代替。Firefox/WebKit只執行手動字級案例，原生縮放未驗證。完整及相容性CI皆必跑新測試。
 
 `font-progress.mjs` 另驗證視窗寬高、手機 viewport 直橫向、快速縮放、離開檢查點及不同尺寸離線重開；比對實際段落與段內位置，並覆蓋書末。備份測試須往返可選 block 定位，舊欄位缺省與非法值必須分別接受及拒絕。

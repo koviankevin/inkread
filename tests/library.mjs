@@ -129,9 +129,14 @@ try {
     window.scrollTo({top:heading.getBoundingClientRect().top+scrollY+130,behavior:'instant'});
     window.dispatchEvent(new Event('pagehide'));
   });
-  const checkpointY=await page.evaluate(()=>scrollY);
+  const checkpointOffset=await page.getByRole('heading',{name:'第三節',exact:true}).evaluate(h=>-h.getBoundingClientRect().top);
   await page.close(); page=await context.newPage(); await page.goto(url);
-  await page.waitForFunction(y=>Math.abs(scrollY-y)<8,checkpointY);
+  // A saving/error banner can wrap and move the article while native anchoring
+  // keeps its text steady. Verify the reading location with the same 8px limit.
+  await page.waitForFunction(offset=>{
+    const h=[...document.querySelectorAll('#document h2')].find(h=>h.textContent==='第三節');
+    return h && Math.abs(h.getBoundingClientRect().top+offset)<8;
+  },checkpointOffset);
   await saved(page);
   pass('An immediate page close recovers the latest small checkpoint even when the periodic progress write fails');
   await context.close(); context=undefined;
