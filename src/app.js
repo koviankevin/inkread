@@ -1041,11 +1041,16 @@ window.addEventListener('drop', async e => {
   } catch { toast('資料夾無法完整讀取，請改用「匯入資料夾」。'); }
 });
 window.addEventListener('scroll',scheduleProgress,{passive:true});
-const cancelResume=()=>{ if (resumeTask) { resumeTask=undefined; renderLibraryStatus(); } };
+const cancelResume=event=>{
+  // File navigation must leave the old restore pending until showDocument saves
+  // its position; the temporary top-of-page layout is not a new reading choice.
+  if (event.target instanceof Element && event.target.closest('#sidebar,#sidebar-toggle,#open-button,dialog')) return;
+  if (resumeTask) { resumeTask=undefined; renderLibraryStatus(); }
+};
 window.addEventListener('wheel',cancelResume,{passive:true});
 window.addEventListener('touchstart',cancelResume,{passive:true});
 window.addEventListener('pointerdown',cancelResume,{passive:true});
-window.addEventListener('keydown',event=>{ if (['ArrowDown','ArrowUp','PageDown','PageUp','Home','End',' '].includes(event.key)) cancelResume(); });
+window.addEventListener('keydown',event=>{ if (['ArrowDown','ArrowUp','PageDown','PageUp','Home','End',' '].includes(event.key)) cancelResume(event); });
 document.addEventListener('visibilitychange',()=>{ if (document.hidden) { checkpointLibrary(); void flushLibrary(); } });
 window.addEventListener('pagehide',()=>{ checkpointLibrary(); void flushLibrary(); });
 const headingLayoutObserver=new ResizeObserver(() => { measureHeadings = true; scheduleProgress(); });
