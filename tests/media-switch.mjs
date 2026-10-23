@@ -31,7 +31,7 @@ for(const kind of kinds)for(const side of ['A','B']){
  const graph='```mermaid\nflowchart TB\n A['+name+'] --> B[閱讀] --> C[完成]\n```';
  const formula='$$\\displaystyle\\sum_{n=1}^{'+(side==='A'?'8':'9')+'}\\frac{1}{n^2}$$';
  const media=[...(kind==='image'||kind==='mixed'?[`![${name}](${name}.svg)`]:[]),...(kind==='diagram'||kind==='mixed'?[graph]:[]),...(kind==='formula'||kind==='mixed'?[formula]:[])].join('\n\n');
- await writeFile(path.join(folder,name+'.md'),'# '+name+'\n\n'+media+'\n\n'+body);
+ await writeFile(path.join(folder,name+'.md'),'# '+name+'\n\n[切換文件]('+kind+'-'+(side==='A'?'B':'A')+'.md)\n\n'+media+'\n\n'+body);
 }
 await writeFile(path.join(folder,'hub.md'),'# hub\n\n選擇另一份文件。');
 let context,inFlight;const results=[],evidence=[],errors=[],unloads=[];
@@ -129,12 +129,15 @@ try{
    // Keyboard navigation also must preserve a pending restore; Space activates
    // the focused file button rather than intentionally moving the reading page.
    await button(p,b).focus();await p.keyboard.press('Space');
+  }else if(kind==='diagram'&&phase==='switch'){
+   await p.locator('#document a').filter({hasText:'切換文件'}).click();
   }else if(!compatibility&&kind==='mixed'&&phase==='switch'){
    await p.setViewportSize({width:390,height:844});
    const tap=async locator=>{const r=await locator.boundingBox();assert(r);await p.touchscreen.tap(r.x+r.width/2,r.y+r.height/2);};
    await tap(p.locator('#sidebar-toggle'));await button(p,b).scrollIntoViewIfNeeded();await tap(button(p,b));
   }else await button(p,b).click();
   await p.waitForFunction(name=>document.getElementById('current-file').textContent===name+'.md',b);
+  if(phase==='switch'&&(kind==='diagram'||kind==='formula'))await p.locator('#library-status[data-state=restoring]').waitFor();
   if(phase==='rapid-user-move'){
    await button(p,a).click();await button(p,b).click();
    await p.evaluate(()=>{window.__qaWheelReceived=false;addEventListener('wheel',event=>{window.__qaWheelReceived={target:event.target?.id,tag:event.target?.tagName,sidebar:!!event.target?.closest?.('#sidebar'),x:event.clientX,y:event.clientY};},{once:true});});
