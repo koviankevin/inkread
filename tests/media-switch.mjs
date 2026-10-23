@@ -34,13 +34,17 @@ for(const kind of kinds)for(const side of ['A','B']){
  await writeFile(path.join(folder,name+'.md'),'# '+name+'\n\n'+media+'\n\n'+body);
 }
 await writeFile(path.join(folder,'hub.md'),'# hub\n\n選擇另一份文件。');
-let context,inFlight;const results=[],evidence=[],errors=[];
+let context,inFlight;const results=[],evidence=[],errors=[],unloads=[];
 const options={headless:true,viewport:{width:1440,height:900},...(!compatibility&&process.env.CHROMIUM_PATH?{executablePath:process.env.CHROMIUM_PATH}:{})};
 async function launch(kind,offline=false,touch=false){
  context=await browserType.launchPersistentContext(profile,{...options,hasTouch:touch,...(kind&&remote?{proxy:{server:'http://127.0.0.1:'+proxy.address().port}}:{})});
  context.__pending=[];
  context.__pendingSeen=new Promise(resolve=>context.__notifyPending=resolve);
- context.on('page',p=>{p.on('pageerror',e=>errors.push(e.message));p.on('request',r=>{if(r.url().startsWith(pendingBase)){context.__pending.push(r.url());context.__notifyPending();}});});
+ context.on('page',p=>{
+  p.on('pageerror',e=>errors.push(e.message));
+  p.on('request',r=>{if(r.url().startsWith(pendingBase)){context.__pending.push(r.url());context.__notifyPending();}});
+  p.on('console',message=>{const text=message.text(),prefix='INKREAD-UNLOAD-CHECKPOINT ';if(text.startsWith(prefix))unloads.push(JSON.parse(text.slice(prefix.length)));});
+ });
  if(kind)await context.addInitScript(({kind,pendingBase,imageSize})=>{
   const retained=[],objectURLs=new Map();let holding=true;
   const descriptor=Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype,'src');
@@ -140,7 +144,18 @@ try{
   if(phase==='late-completion'){await p.evaluate(()=>window.__qaRelease());await stable(p,b);}
   const requests=[...context.__pending];inFlight={kind,phase,beforeSwitch,expectedA:expected[a],expectedB:expected[b]};
   if(phase==='rapid-user-move')Object.assign(inFlight,{beforeClose:await point(p),input:await p.evaluate(()=>window.__qaWheelReceived)});
+  if(phase==='rapid-user-move')await p.evaluate(token=>addEventListener('beforeunload',()=>{
+   const checkpoint=JSON.parse(localStorage.getItem(`inkread-library:${new URL('./',location.href).href}:checkpoint`)||'null');
+   // Observe after the app's existing listener; no test storage write or save.
+   console.debug('INKREAD-UNLOAD-CHECKPOINT '+JSON.stringify({token,y:scrollY,path:checkpoint?.current?.path,positionY:checkpoint?.position?.y}));
+  }),kind+':'+phase);
   await close(p,phase==='switch');
+  if(phase==='rapid-user-move'){
+   inFlight.beforeUnload=unloads.findLast(event=>event.token===kind+':'+phase);
+   assert(inFlight.beforeUnload,'The real beforeunload event must be observed');
+   assert(inFlight.beforeUnload.path.endsWith('/'+b+'.md'));
+   assert(Math.abs(inFlight.beforeUnload.y-inFlight.beforeUnload.positionY)<1,'The latest reading position must already be checkpointed before unload finishes');
+  }
   p=await launch(undefined,true);const actualB=await stable(p,b);await button(p,a).click();const actualA=await stable(p,a);
   results.push(kind+': '+phase);evidence.push({kind,phase,beforeSwitch,requests,expectedA:expected[a],actualA,expectedB:expected[b],actualB});console.log('PASS '+results.at(-1));
   await p.screenshot({path:path.join(output,browserName+'-'+kind+'-'+phase+'.png')});await park(p);
