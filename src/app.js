@@ -429,6 +429,11 @@ function setTheme(theme, rerender = true) {
 }
 
 function setFont(size, manual = false) {
+  let position;
+  if(manual) {
+    updateProgress();
+    position={block:readingPositions.get(current.path)?.block || cachedReadingBlock(scrollY+150),atStart:scrollY<5,atEnd:scrollY+innerHeight>=document.documentElement.scrollHeight-5};
+  }
   fontSize = Math.min(22, Math.max(13,size));
   document.documentElement.style.setProperty('--reader-size', `${fontSize}px`);
   $('font-size').textContent = fontSize;
@@ -437,7 +442,13 @@ function setFont(size, manual = false) {
   if (manual) preference('font-size-choice',String(fontSize));
   preference('font-size',String(fontSize));
   measureHeadings=true;
-  requestAnimationFrame(updateTables);
+  if(position?.block && readingBlocks[position.block.index]) {
+    updateTables();
+    const max=Math.max(0,document.documentElement.scrollHeight-innerHeight);
+    window.scrollTo({top:position.atStart ? 0 : position.atEnd ? max : Math.max(0,Math.min(max,blockTarget({element:readingBlocks[position.block.index],...position.block}))),behavior:'instant'});
+    if(!position.atEnd && !position.atStart) restoredBlock={version:renderVersion,y:scrollY,block:position.block};
+    updateProgress();
+  } else requestAnimationFrame(updateTables);
 }
 
 let demoOpenBeforeSearch;

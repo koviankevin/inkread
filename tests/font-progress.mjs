@@ -84,8 +84,8 @@ try{
     pass(name+' viewport preserves the migrated 18px paragraph');
   }
   await page.locator('#font-minus').click();await page.locator('#font-minus').click();
-  // The toolbar is above the article; real clicks scroll it into view.
-  // Resume reading at the target paragraph after choosing the new size.
+  // Establish the saved 16px checkpoint for this legacy-schema regression.
+  // reading-controls.mjs separately verifies changes without repositioning.
   points.manual=await at(page,points.two.paragraph);assert.equal(points.manual.font,'16');
   pass('Progress saved after choosing 16px records its actual reading font');
   await context.close();context=undefined;page=await launch(true);

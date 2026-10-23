@@ -1,5 +1,7 @@
 # Browser acceptance
 
+`reading-controls.mjs` 以原生鍵盤／滑鼠按鈕測試手動13–22字級、反覆變化、真實捲動後重新保存、書末與完整離線重啟；調整後不重新捲回目標。Chromium 原生瀏覽器縮放另外透過一次性無額外權限 helper 的 chrome.tabs.setZoom，核對80/125/150/200/100%、內寬及DPR，含150%倍率保留及混合字級後離線重開。使用 Playwright bundled Chromium channel，需先 `npx playwright-core install chromium`；不以CSS zoom或viewport模擬代替。Firefox/WebKit只執行手動字級案例，原生縮放未驗證。完整及相容性CI皆必跑新測試。
+
 `font-progress.mjs` 另驗證視窗寬高、手機 viewport 直橫向、快速縮放、離開檢查點及不同尺寸離線重開；比對實際段落與段內位置，並覆蓋書末。備份測試須往返可選 block 定位，舊欄位缺省與非法值必須分別接受及拒絕。
 
 `tests/font-progress.mjs` 驗證 16→18 後的實際段落與段內位置，不以捲動像素或整章百分比替代；覆蓋舊格式、其他未開啟文件、完整離線重啟與手動字級。完整及相容性測試皆必須執行；備份的可選原字級欄位需保留並驗證範圍。
