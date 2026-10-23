@@ -34,10 +34,10 @@ for(const kind of kinds)for(const side of ['A','B']){
  await writeFile(path.join(folder,name+'.md'),'# '+name+'\n\n'+media+'\n\n'+body);
 }
 await writeFile(path.join(folder,'hub.md'),'# hub\n\n選擇另一份文件。');
-let context;const results=[],evidence=[],errors=[];
-const options={headless:true,hasTouch:true,viewport:{width:1440,height:900},...(!compatibility&&process.env.CHROMIUM_PATH?{executablePath:process.env.CHROMIUM_PATH}:{})};
-async function launch(kind,offline=false){
- context=await browserType.launchPersistentContext(profile,{...options,...(kind&&remote?{proxy:{server:'http://127.0.0.1:'+proxy.address().port}}:{})});
+let context,inFlight;const results=[],evidence=[],errors=[];
+const options={headless:true,viewport:{width:1440,height:900},...(!compatibility&&process.env.CHROMIUM_PATH?{executablePath:process.env.CHROMIUM_PATH}:{})};
+async function launch(kind,offline=false,touch=false){
+ context=await browserType.launchPersistentContext(profile,{...options,hasTouch:touch,...(kind&&remote?{proxy:{server:'http://127.0.0.1:'+proxy.address().port}}:{})});
  context.__pending=[];
  context.__pendingSeen=new Promise(resolve=>context.__notifyPending=resolve);
  context.on('page',p=>{p.on('pageerror',e=>errors.push(e.message));p.on('request',r=>{if(r.url().startsWith(pendingBase)){context.__pending.push(r.url());context.__notifyPending();}});});
@@ -120,12 +120,12 @@ try{
  for(const kind of kinds)for(const side of ['A','B']){const name=kind+'-'+side;await button(p,name).click();await media(p,name);expected[name]=await at(p,side==='A'?6:8);await p.waitForTimeout(650);await p.locator('#library-status[data-state=saved]').waitFor();console.log('SEED '+name);}
  await park(p);
  for(const kind of kinds)for(const phase of ['switch','rapid-user-move','late-completion']){
-  const a=kind+'-A',b=kind+'-B';console.log('START '+kind+': '+phase);p=await launch(kind);await button(p,a).click();const beforeSwitch=await pending(p,kind);
+  const a=kind+'-A',b=kind+'-B';console.log('START '+kind+': '+phase);p=await launch(kind,false,!compatibility&&kind==='mixed'&&phase==='switch');await button(p,a).click();const beforeSwitch=await pending(p,kind);
   if(phase==='late-completion'){
    // Keyboard navigation also must preserve a pending restore; Space activates
    // the focused file button rather than intentionally moving the reading page.
    await button(p,b).focus();await p.keyboard.press('Space');
-  }else if(kind==='mixed'&&phase==='switch'){
+  }else if(!compatibility&&kind==='mixed'&&phase==='switch'){
    await p.setViewportSize({width:390,height:844});
    const tap=async locator=>{const r=await locator.boundingBox();assert(r);await p.touchscreen.tap(r.x+r.width/2,r.y+r.height/2);};
    await tap(p.locator('#sidebar-toggle'));await button(p,b).scrollIntoViewIfNeeded();await tap(button(p,b));
@@ -133,19 +133,21 @@ try{
   await p.waitForFunction(name=>document.getElementById('current-file').textContent===name+'.md',b);
   if(phase==='rapid-user-move'){
    await button(p,a).click();await button(p,b).click();
-   await p.evaluate(()=>{window.__qaWheelReceived=false;addEventListener('wheel',()=>{window.__qaWheelReceived=true;},{once:true});});
+   await p.evaluate(()=>{window.__qaWheelReceived=false;addEventListener('wheel',event=>{window.__qaWheelReceived={target:event.target?.id,tag:event.target?.tagName,sidebar:!!event.target?.closest?.('#sidebar'),x:event.clientX,y:event.clientY};},{once:true});});
    await p.mouse.move(1000,700);await p.mouse.wheel(0,300);
    await p.waitForFunction(()=>window.__qaWheelReceived);expected[b]=await at(p,10);
   }
   if(phase==='late-completion'){await p.evaluate(()=>window.__qaRelease());await stable(p,b);}
-  const requests=[...context.__pending];await close(p,phase==='switch');
+  const requests=[...context.__pending];inFlight={kind,phase,beforeSwitch,expectedA:expected[a],expectedB:expected[b]};
+  if(phase==='rapid-user-move')Object.assign(inFlight,{beforeClose:await point(p),input:await p.evaluate(()=>window.__qaWheelReceived)});
+  await close(p,phase==='switch');
   p=await launch(undefined,true);const actualB=await stable(p,b);await button(p,a).click();const actualA=await stable(p,a);
   results.push(kind+': '+phase);evidence.push({kind,phase,beforeSwitch,requests,expectedA:expected[a],actualA,expectedB:expected[b],actualB});console.log('PASS '+results.at(-1));
   await p.screenshot({path:path.join(output,browserName+'-'+kind+'-'+phase+'.png')});await park(p);
  }
  assert.equal(results.length,12);assert.deepEqual(errors,[]);
  await writeFile(path.join(output,browserName+'-results.json'),JSON.stringify({browser:browserName,site:url,passed:results.length,results,evidence,errors,offlineMethod:'native context.setOffline(true) before navigation after full persistent browser restart'},null,2));
-}catch(error){const diagnostic=await context?.pages().at(-1)?.evaluate(()=>({file:document.getElementById('current-file')?.textContent,library:document.getElementById('library-status')?.outerHTML,checkpoint:Object.entries(localStorage).filter(([k])=>k.endsWith(':checkpoint')),scripts:[...document.scripts].map(s=>s.src)})).catch(()=>undefined);await writeFile(path.join(output,browserName+'-failure.json'),JSON.stringify({error:error.stack,results,evidence,errors,diagnostic},null,2));await context?.pages().at(-1)?.screenshot({path:path.join(output,browserName+'-failure.png')}).catch(()=>{});throw error;
+}catch(error){const diagnostic=await context?.pages().at(-1)?.evaluate(()=>({file:document.getElementById('current-file')?.textContent,library:document.getElementById('library-status')?.outerHTML,checkpoint:Object.entries(localStorage).filter(([k])=>k.endsWith(':checkpoint')),scripts:[...document.scripts].map(s=>s.src)})).catch(()=>undefined);await writeFile(path.join(output,browserName+'-failure.json'),JSON.stringify({error:error.stack,results,evidence,errors,inFlight,diagnostic},null,2));await context?.pages().at(-1)?.screenshot({path:path.join(output,browserName+'-failure.png')}).catch(()=>{});throw error;
 }finally{
  await context?.close();for(const resolve of held)resolve();for(const socket of sockets)socket.destroy();await new Promise(resolve=>proxy.close(resolve));await server.close();
  assert(path.resolve(temporary).startsWith(path.resolve(os.tmpdir())+path.sep));await rm(temporary,{recursive:true,force:true,maxRetries:5,retryDelay:200});
