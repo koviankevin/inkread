@@ -90,6 +90,16 @@ function selectForSaving() {
   pendingSelection={path:current.path,updatedAt:Date.now()};
   scheduleLibrarySave();
 }
+function tabDocumentPath() {
+  // Fragments survive tab/session restoration without sending local filenames
+  // to the server. They identify a saved document, never carry document bytes.
+  if (!location.hash.startsWith('#inkread=')) return;
+  try { return decodeURIComponent(location.hash.slice(9)); } catch { /* Invalid bookmark. */ }
+}
+function rememberTabDocument() {
+  try { history.replaceState(history.state,'',`#inkread=${encodeURIComponent(current.path)}`); }
+  catch { /* Reading and shared-library recovery still work if history is blocked. */ }
+}
 function rememberPosition() {
   if (libraryLoading || clearing || restorePreparing || (transferBusy && restoreBase) || resumeTask || printMedia.matches || current.demo || displayedDocument!==current || documents.get(current.path)!==current) return;
   const y=window.scrollY, end=document.documentElement.scrollHeight;
@@ -179,7 +189,8 @@ async function hydrateLibrary(resume) {
   restorePosition(saved.checkpoint?.position);
   const selected=(saved.checkpoint?.current?.updatedAt || 0)>(saved.current?.updatedAt || 0) ? saved.checkpoint.current : saved.current;
   libraryReady=true;
-  if (resume && documents.has(selected?.path)) current=documents.get(selected.path);
+  const path=documents.has(tabDocumentPath()) ? tabDocumentPath() : selected?.path;
+  if (resume && documents.has(path)) current=documents.get(path);
   if (!resume) { renderFiles(); renderImages(currentImages); }
 }
 function resetLibraryMemory() {
@@ -745,6 +756,9 @@ function showDocument(doc, {preserveScroll = false, anchor = '',record = true,re
   resumeTask=undefined;
   if (current !== doc) remoteAllowed = false;
   current = doc;
+  // An invalidated tab temporarily displays the guide until it reloads the
+  // new library. Keep its real file URL instead of bookmarking that placeholder.
+  if (libraryReady || record) rememberTabDocument();
   const version = ++renderVersion;
   const position=resume && !preserveScroll && !anchor && readingPositions.get(doc.path);
   if (position && position.revision===doc.revision && position.y>5) resumeTask={version};
@@ -1065,6 +1079,12 @@ window.addEventListener('pointerdown',cancelResume,{passive:true});
 window.addEventListener('keydown',event=>{ if (['ArrowDown','ArrowUp','PageDown','PageUp','Home','End',' '].includes(event.key)) cancelResume(event); });
 document.addEventListener('visibilitychange',()=>{ if (document.hidden) saveOnExit(); });
 window.addEventListener('pagehide',saveOnExit);
+window.addEventListener('hashchange',()=>{
+  if (libraryLoading || !libraryReady) return;
+  const doc=documents.get(tabDocumentPath());
+  if (doc && doc!==current) showDocument(doc);
+  else rememberTabDocument(); // Keep the tab identity after the native skip link.
+});
 const headingLayoutObserver=new ResizeObserver(() => { measureHeadings = true; scheduleProgress(); });
 headingLayoutObserver.observe($('document'));
 headingLayoutObserver.observe(document.querySelector('.offline-state'));

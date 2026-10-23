@@ -190,6 +190,9 @@ try {
     tx.objectStore('positions').put({path:'safe.md',revision:'old',y:99999,ratio:1,anchor:'x',fraction:1,updatedAt:Date.now()});
     tx.objectStore('meta').put({path:'safe.md',updatedAt:Date.now()+60000},'current');
     await new Promise(resolve=>{tx.oncomplete=resolve;});db.close();
+    // This synthetic legacy fixture supplies a shared selection, with no newer
+    // per-tab URL selection. Keep all path/sanitization/progress assertions.
+    history.replaceState(history.state,'',location.pathname+location.search);
   });
   await page.reload(); await page.locator('#document h1').filter({hasText:'復原內容安全'}).waitFor();
   assert.equal(await page.locator('#user-files button').count(),1);
