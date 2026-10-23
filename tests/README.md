@@ -1,5 +1,7 @@
 # Browser acceptance
 
+`media-switch.mjs` is mandatory in Chromium and Firefox/WebKit CI: 12 checks per engine, with image/diagram/formula/mixed A/B documents. It holds actual runtime requests while switching, repeats rapid A→B→A→B followed by real user scrolling, and releases old loads after a keyboard switch. The diagram direct-switch uses an actual imported Markdown cross-document link. Diagram/formula switches wait until queued saves finish while restoration remains pending, so a force-close cannot mask a bad old-document position. Desktop wheel/keyboard checks use desktop contexts. Only the Chromium mixed-media direct switch enables a narrow viewport and native simulated touchscreen input, including reopening the sidebar. Touch emulation is not applied globally to desktop wheel cases. Failure diagnostics retain the actual wheel target and the paragraph before closing. An observer reads the application checkpoint at the first real shutdown event (beforeunload, pagehide or hidden visibilitychange) and stores that observation under a separate QA key, then asserts it after the full offline browser restart. It never calls the app’s save handler or writes its checkpoint, document or position records. This avoids depending on console-message delivery from a disposed page. The direct-switch cases force-close the entire context without relying on unload, and the other cases close the reader through normal unload before the process. Every case closes the full persistent browser and restarts with native `context.setOffline(true)` before navigation. It verifies each document’s own image pixels, diagram label, formula, paragraph and internal fraction. On Firefox, offline contexts intentionally omit request routing because routing prevents worker navigation in this combination. The server/proxy and URL hooks are QA-only; saved document and image bytes are unmodified. Deployed-site runs use `INKREAD_TEST_SITE`; local runs can select pristine output with `INKREAD_TEST_DIST`.
+
 `reading-controls.mjs` 也須覆蓋只改頁首高度、在 ResizeObserver 之前立即保存，檢查點的區塊與畫面段落必須相符，並驗證完整離線重開。一般捲動不可逐段量測；合併恢復的既有精度門檻不變。
 
 `library.mjs` 的模擬配額失敗／立即關閉案例，需比對原章節在視窗內的 offset，維持 8px 精度；保存或錯誤狀態列換行可令整頁 scrollY 改變而文字位置相同。不要用整頁絕對捲動值替代閱讀位置。
@@ -14,7 +16,7 @@
 
 `tests/verify.mjs` 另驗證 1.7.3 字級遷移：以舊版 localStorage 的 16 升到 18、其他 13–22 字級保留、新版手動選回 16 後重開保留。初始化不建立手動選擇紀錄；無效手動資料不覆蓋可用偏好。
 
-`npm test` retains the seven existing Chromium suites (66 checks), including true
+`npm test` runs ten Chromium suites (113 checks), including true
 Playwright offline emulation and full `file://` transfers. The Pages workflow runs
 this suite exactly once per PR, main push or manual dispatch.
 

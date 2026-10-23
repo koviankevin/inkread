@@ -110,6 +110,12 @@ function checkpointLibrary() {
   if (!resumeTask) updateProgress();
   library.checkpoint(pendingSelection || {path:current.path,updatedAt:Date.now()},readingPositions.get(current.path));
 }
+function saveOnExit() {
+  // A tab invalidated by another tab must not reload the library while leaving
+  // and checkpoint its temporary guide over the newly restored selection.
+  if (!libraryReady) return;
+  checkpointLibrary(); void flushLibrary();
+}
 function flushLibrary() {
   clearTimeout(saveTimer); saveTimer=undefined;
   if (libraryLoading || clearing) return Promise.resolve();
@@ -771,7 +777,12 @@ function showDocument(doc, {preserveScroll = false, anchor = '',record = true,re
   refreshIcons();
   prepareFeatures(rendered,version);
   displayedDocument=doc;
-  if (record) selectForSaving();
+  if (record) {
+    selectForSaving();
+    // A browser can terminate before unload or the deferred IndexedDB write.
+    // Save the selection with its existing position, including a pending restore.
+    checkpointLibrary();
+  }
   if (anchor) renderAllFeatures().then(() => { if (version === renderVersion) jumpToAnchor(anchor); });
   if (resumeTask) void resumePosition(position,resumeTask);
   updateProgress();
@@ -1041,19 +1052,28 @@ window.addEventListener('drop', async e => {
   } catch { toast('資料夾無法完整讀取，請改用「匯入資料夾」。'); }
 });
 window.addEventListener('scroll',scheduleProgress,{passive:true});
-const cancelResume=()=>{ if (resumeTask) { resumeTask=undefined; renderLibraryStatus(); } };
+const cancelResume=event=>{
+  if (!resumeTask) return;
+  // File navigation must leave the old restore pending until showDocument saves
+  // its position; the temporary top-of-page layout is not a new reading choice.
+  if (event.target instanceof Element && event.target.closest('#sidebar,#sidebar-toggle,#open-button,dialog,#document a[href]:not([href^="#"])')) return;
+  resumeTask=undefined; renderLibraryStatus();
+};
 window.addEventListener('wheel',cancelResume,{passive:true});
 window.addEventListener('touchstart',cancelResume,{passive:true});
 window.addEventListener('pointerdown',cancelResume,{passive:true});
-window.addEventListener('keydown',event=>{ if (['ArrowDown','ArrowUp','PageDown','PageUp','Home','End',' '].includes(event.key)) cancelResume(); });
-document.addEventListener('visibilitychange',()=>{ if (document.hidden) { checkpointLibrary(); void flushLibrary(); } });
-window.addEventListener('pagehide',()=>{ checkpointLibrary(); void flushLibrary(); });
+window.addEventListener('keydown',event=>{ if (['ArrowDown','ArrowUp','PageDown','PageUp','Home','End',' '].includes(event.key)) cancelResume(event); });
+document.addEventListener('visibilitychange',()=>{ if (document.hidden) saveOnExit(); });
+window.addEventListener('pagehide',saveOnExit);
 const headingLayoutObserver=new ResizeObserver(() => { measureHeadings = true; scheduleProgress(); });
 headingLayoutObserver.observe($('document'));
 headingLayoutObserver.observe(document.querySelector('.offline-state'));
 let resizeTimer;
 window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { updateTables(); updateProgress(); },100); });
-window.addEventListener('beforeunload', () => { for (const url of assets.values()) URL.revokeObjectURL(url); });
+window.addEventListener('beforeunload', () => {
+  saveOnExit();
+  for (const url of assets.values()) URL.revokeObjectURL(url);
+});
 
 setTheme(preference('theme') === 'dark' ? 'dark' : 'light',false);
 const savedSize = Number(preference('font-size'));
