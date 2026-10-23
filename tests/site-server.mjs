@@ -3,6 +3,10 @@ import {readFile} from 'node:fs/promises';
 import path from 'node:path';
 import {gzipSync} from 'node:zlib';
 
+// https://fetch.spec.whatwg.org/#port-blocking — keep browser protections intact
+// when the OS happens to assign a restricted ephemeral port (observed: 2049).
+const blockedPorts=new Set([0,1,7,9,11,13,15,17,19,20,21,22,23,25,37,42,43,53,69,77,79,87,95,101,102,103,104,109,110,111,113,115,117,119,123,135,137,139,143,161,179,389,427,465,512,513,514,515,526,530,531,532,540,548,554,556,563,587,601,636,989,990,993,995,1719,1720,1723,2049,3659,4045,4190,5060,5061,6000,6566,6665,6666,6667,6668,6669,6679,6697,10080]);
+
 export async function serveSites(sites,{gzip=false,intercept}={}) {
   const compressed = new Map();
   const server = createServer(async (request,response) => {
@@ -27,6 +31,14 @@ export async function serveSites(sites,{gzip=false,intercept}={}) {
       response.writeHead(200,headers); response.end(data);
     } catch { response.writeHead(404).end(); }
   });
-  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  for(let attempt=0;;attempt++){
+    await new Promise((resolve,reject)=>{
+      server.once('error',reject);
+      server.listen(0,'127.0.0.1',()=>{server.off('error',reject);resolve();});
+    });
+    if(!blockedPorts.has(server.address().port))break;
+    await new Promise(resolve=>server.close(resolve));
+    if(attempt>=7)throw new Error('No browser-compatible ephemeral test port was assigned');
+  }
   return {origin:`http://127.0.0.1:${server.address().port}`,close:()=>new Promise(resolve=>server.close(resolve))};
 }
