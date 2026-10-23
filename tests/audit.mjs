@@ -85,10 +85,11 @@ try {
   report.performance.renderMs = Math.round(performance.now()-renderStart);
   await page.waitForTimeout(100);
   report.performance.scroll = await page.evaluate(async () => {
-    let headingReads = 0;
+    let headingReads = 0, blockReads = 0;
     const original = Element.prototype.getBoundingClientRect;
     Element.prototype.getBoundingClientRect = function(...args) {
       if (/^H[1-6]$/.test(this.tagName)) headingReads++;
+      if (/^(P|LI|PRE|TABLE|H[1-6])$/.test(this.tagName)) blockReads++;
       return original.apply(this,args);
     };
     const samples = [];
@@ -102,10 +103,11 @@ try {
       }
       await new Promise(resolve => requestAnimationFrame(resolve));
       samples.sort((a,b)=>a-b);
-      return {headingLayoutReads:headingReads,medianHandlerMs:samples[15],maxHandlerMs:samples[29]};
+      return {headingLayoutReads:headingReads,blockLayoutReads:blockReads,medianHandlerMs:samples[15],maxHandlerMs:samples[29]};
     } finally { Element.prototype.getBoundingClientRect = original; }
   });
   if (!baseline) assert.ok(report.performance.scroll.headingLayoutReads < 2000,'Steady scrolling must not measure all headings on every event');
+  if (!baseline) assert.equal(report.performance.scroll.blockLayoutReads,0,'Stable scrolling must use cached block geometry');
   await page.locator('#toc-links a').nth(499).evaluate(element => element.click());
   await page.waitForFunction(() => document.querySelectorAll('#toc-links a')[499]?.getAttribute('aria-current') === 'location',undefined,{timeout:10000});
   report.checks.push('1,000-heading document and chapter navigation');
