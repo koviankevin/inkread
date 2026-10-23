@@ -61,7 +61,7 @@ async function holdStorage(p){
  },name);
 }
 async function closePage(p){const done=p.waitForEvent('close');await p.close({runBeforeUnload:true});await done;}
-async function closeAll(order){if(order==='simultaneous')await Promise.all(pages.map(closePage));else for(const i of order)await closePage(pages[i]);pages=[];await context.close();context=undefined;}
+async function closeAll(order){if(order==='simultaneous')await Promise.all(pages.map(closePage));else for(const i of order)await closePage(pages[i]);for(let i=0;i<pages.length;i++)addresses[books[i].name]=pages[i].url();pages=[];await context.close();context=undefined;}
 async function verifyRecovery(phase){
  await launch(true);pages=[];
  for(const b of books){
