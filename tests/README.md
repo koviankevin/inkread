@@ -148,3 +148,5 @@ up to the existing 100 MiB of image payload in the output chunks. Both the
 re-export and subsequent fresh-profile restore remain mandatory browser checks.
 The regression was observed in Linux Playwright WebKit; Safari/iOS behavior is
 not inferred from that result.
+
+The stored-library security fixture supplies the old shared selection and clears any current per-tab file fragment before reloading. Otherwise a legitimate guide bookmark would take precedence over the injected shared selection. Its existing unsafe-path, oversize, sanitization, remote-image and stale-revision assertions remain unchanged. Invalidated tabs must retain their actual file URLs while showing a temporary guide; the selection suite checks this before reload and then verifies safe fallback.

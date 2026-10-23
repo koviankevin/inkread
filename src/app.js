@@ -756,7 +756,9 @@ function showDocument(doc, {preserveScroll = false, anchor = '',record = true,re
   resumeTask=undefined;
   if (current !== doc) remoteAllowed = false;
   current = doc;
-  rememberTabDocument();
+  // An invalidated tab temporarily displays the guide until it reloads the
+  // new library. Keep its real file URL instead of bookmarking that placeholder.
+  if (libraryReady || record) rememberTabDocument();
   const version = ++renderVersion;
   const position=resume && !preserveScroll && !anchor && readingPositions.get(doc.path);
   if (position && position.revision===doc.revision && position.y>5) resumeTask={version};
@@ -1078,7 +1080,7 @@ window.addEventListener('keydown',event=>{ if (['ArrowDown','ArrowUp','PageDown'
 document.addEventListener('visibilitychange',()=>{ if (document.hidden) saveOnExit(); });
 window.addEventListener('pagehide',saveOnExit);
 window.addEventListener('hashchange',()=>{
-  if (libraryLoading) return;
+  if (libraryLoading || !libraryReady) return;
   const doc=documents.get(tabDocumentPath());
   if (doc && doc!==current) showDocument(doc);
   else rememberTabDocument(); // Keep the tab identity after the native skip link.
