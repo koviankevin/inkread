@@ -97,7 +97,7 @@ function rememberPosition() {
   const block=cachedReadingBlock(y+150);
   const position={path:current.path,revision:current.revision,y,ratio:y/Math.max(1,end-window.innerHeight),anchor:activeHeadings[index]?.id || '',fraction:Math.max(0,Math.min(1,(y+150-(top || 0))/height)),fontSize,...(block ? {block} : {}),atEnd:y+window.innerHeight>=end-5,updatedAt:Date.now()};
   const previous=readingPositions.get(current.path);
-  if (previous && previous.fontSize===fontSize && previous.block?.index===block?.index && Math.abs((previous.block?.fraction || 0)-(block?.fraction || 0))<1e-6 && Math.abs(previous.y-y)<1 && previous.anchor===position.anchor && previous.atEnd===position.atEnd && Math.abs(previous.fraction-position.fraction)<1e-6 && Math.abs(previous.ratio-position.ratio)<1e-6) return;
+  if (previous && previous.fontSize===fontSize && previous.block?.index===block?.index && previous.block?.gap===block?.gap && Math.abs((previous.block?.fraction || 0)-(block?.fraction || 0))<1e-6 && Math.abs(previous.y-y)<1 && previous.anchor===position.anchor && previous.atEnd===position.atEnd && Math.abs(previous.fraction-position.fraction)<1e-6 && Math.abs(previous.ratio-position.ratio)<1e-6) return;
   readingPositions.set(current.path,position); dirtyPositions.set(current.path,position);
   selectForSaving();
 }
@@ -155,7 +155,7 @@ async function hydrateLibrary(resume) {
     if (!doc || doc.demo || position.revision!==doc.revision || !Number.isFinite(position.y) || position.y<0 || !Number.isFinite(position.ratio) || position.ratio<0 || position.ratio>1 || !Number.isFinite(position.fraction) || position.fraction<0 || position.fraction>1 || typeof position.anchor!=='string' || position.anchor.length>1000 || !Number.isFinite(position.updatedAt)) return;
     if (position.updatedAt>(readingPositions.get(doc.path)?.updatedAt || 0)) {
       const b=position.block;
-      if(b!==undefined && (!b || !Number.isInteger(b.index) || b.index<0 || b.index>1000000 || !Number.isFinite(b.fraction) || b.fraction<0 || b.fraction>1)) {
+      if(b!==undefined && (!b || !Number.isInteger(b.index) || b.index<0 || b.index>1000000 || !Number.isFinite(b.fraction) || b.fraction<0 || b.fraction>1 || (b.gap!==undefined && (!Number.isFinite(b.gap) || b.gap<0 || b.gap>1000000)))) {
         position={...position}; delete position.block;
       }
       if (position.fontSize===undefined && migrationFontSize) {
@@ -340,7 +340,7 @@ function cachedReadingBlock(y) {
   let low=0,high=blockPositions.length;
   while(low<high) { const middle=(low+high)>>>1; if(blockPositions[middle].top<=y) low=middle+1; else high=middle; }
   const index=Math.max(0,low-1),rect=blockPositions[index];
-  if(rect) return {index,fraction:Math.max(0,Math.min(1,(y-rect.top)/Math.max(1,rect.height)))};
+  if(rect) { const gap=Math.max(0,y-rect.top-rect.height);return {index,fraction:Math.max(0,Math.min(1,(y-rect.top)/Math.max(1,rect.height))),...(gap ? {gap} : {})}; }
 }
 function readingBlock(y) {
   const blocks=documentBlocks();
@@ -353,11 +353,11 @@ function readingBlock(y) {
   const element=blocks[Math.max(0,low-1)];
   if (!element) return;
   const rect=element.getBoundingClientRect();
-  return {element,fraction:Math.max(0,Math.min(1,(y-rect.top-scrollY)/Math.max(1,rect.height)))};
+  return {element,fraction:Math.max(0,Math.min(1,(y-rect.top-scrollY)/Math.max(1,rect.height))),gap:Math.max(0,y-rect.top-scrollY-rect.height)};
 }
 function blockTarget(point) {
   const rect=point.element.getBoundingClientRect();
-  return rect.top+scrollY+point.fraction*rect.height-150;
+  return rect.top+scrollY+point.fraction*rect.height+(point.gap || 0)-150;
 }
 async function resumePosition(position,task) {
   try {
@@ -374,7 +374,7 @@ async function resumePosition(position,task) {
       return top+position.fraction*Math.max(1,end-top)-150;
     };
     const block=position.block,element=block && documentBlocks()[block.index];
-    let point=element ? {element,fraction:block.fraction} : undefined;
+    let point=element ? {element,fraction:block.fraction,gap:block.gap} : undefined;
     if (!point && !position.atEnd && Number.isInteger(position.fontSize) && position.fontSize>=13 && position.fontSize<=22 && position.fontSize!==fontSize) {
       // Reconstruct the saved layout before interpreting its section fraction.
       // Reflow can change different paragraphs by different amounts.
@@ -606,7 +606,7 @@ function updateProgress() {
   }
   if(saved && saved.revision===current.revision && saved.block && readingBlocks[saved.block.index]) {
     const max=Math.max(0,document.documentElement.scrollHeight-innerHeight);
-    window.scrollTo({top:saved.atEnd ? max : Math.max(0,Math.min(max,blockTarget({element:readingBlocks[saved.block.index],fraction:saved.block.fraction}))),behavior:'instant'});
+    window.scrollTo({top:saved.atEnd ? max : Math.max(0,Math.min(max,blockTarget({element:readingBlocks[saved.block.index],fraction:saved.block.fraction,gap:saved.block.gap}))),behavior:'instant'});
   }
   const top = window.scrollY + article.getBoundingClientRect().top;
   const length = Math.max(1, article.offsetHeight - window.innerHeight + 100);
