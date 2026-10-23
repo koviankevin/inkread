@@ -8,6 +8,7 @@ const root = new URL('../', import.meta.url);
 const pages = parse(await readFile(new URL('.github/workflows/pages.yml', root), 'utf8'));
 const compatibility = parse(await readFile(new URL('.github/workflows/compatibility.yml', root), 'utf8'));
 const pkg = JSON.parse(await readFile(new URL('package.json', root), 'utf8'));
+const lock = JSON.parse(await readFile(new URL('package-lock.json', root), 'utf8'));
 const action = (job, name) => job.steps.find(step => step.uses?.startsWith(`${name}@`));
 const commands = job => job.steps.filter(step => step.run).map(step => step.run);
 const results = ['success', 'failure', 'cancelled', 'skipped'];
@@ -38,6 +39,11 @@ function contract(p, c) {
   assert.deepEqual(p.jobs.deploy.permissions, {contents: 'read', pages: 'write', 'id-token': 'write'});
   assert.deepEqual(p.jobs.deploy.needs, ['build', 'compatibility']);
   assert.deepEqual(c.jobs.library.strategy, {'fail-fast': false, matrix: {browser: ['firefox', 'webkit']}});
+  assert.equal(c.jobs.library['runs-on'], 'ubuntu-24.04');
+  assert.deepEqual(c.jobs.library.container, {
+    image: `mcr.microsoft.com/playwright:v${lock.packages['node_modules/playwright-core'].version}-noble@sha256:47b510dd9230bf0b9bfc9b20102241e577ea7a99334ab4c3ca19f19770e9b8ea`,
+    options: '--init --shm-size=1gb',
+  });
   assert.equal(p.jobs.build['timeout-minutes'], 35);
   assert.equal(c.jobs.library['timeout-minutes'], 35);
   assert.equal(c.jobs.library.env.INKREAD_BROWSER, '${{ matrix.browser }}');
@@ -64,8 +70,7 @@ function contract(p, c) {
     'cd dist && zip -r inkread-offline.zip .',
   ]);
   assert.deepEqual(commands(c.jobs.library), [
-    'npm ci', 'npx playwright-core install --with-deps ${{ matrix.browser }}',
-    'npm run build', 'npm run test:compat',
+    'npm ci', 'npm run build', 'npm run test:compat',
   ]);
   const upload = action(p.jobs.build, 'actions/upload-pages-artifact');
   assert.deepEqual(upload.with, {path: 'dist'});
