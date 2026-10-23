@@ -39,6 +39,7 @@ let featureObservers = [];
 let renderAllFeatures = () => Promise.resolve();
 let activeHeadings = [];
 let headingPositions = [];
+let readingBlocks = [], blockPositions = [], layoutWidth = 0, layoutHeight = 0;
 let tocLinks = [];
 let activeHeadingIndex = -1;
 let measureHeadings = true;
@@ -93,9 +94,10 @@ function rememberPosition() {
   const y=window.scrollY, end=document.documentElement.scrollHeight;
   const index=Math.max(0,activeHeadingIndex), top=headingPositions[index];
   const height=Math.max(1,(headingPositions[index+1] || end) - (top || 0));
-  const position={path:current.path,revision:current.revision,y,ratio:y/Math.max(1,end-window.innerHeight),anchor:activeHeadings[index]?.id || '',fraction:Math.max(0,Math.min(1,(y+150-(top || 0))/height)),fontSize,atEnd:y+window.innerHeight>=end-5,updatedAt:Date.now()};
+  const block=cachedReadingBlock(y+150);
+  const position={path:current.path,revision:current.revision,y,ratio:y/Math.max(1,end-window.innerHeight),anchor:activeHeadings[index]?.id || '',fraction:Math.max(0,Math.min(1,(y+150-(top || 0))/height)),fontSize,...(block ? {block} : {}),atEnd:y+window.innerHeight>=end-5,updatedAt:Date.now()};
   const previous=readingPositions.get(current.path);
-  if (previous && previous.fontSize===fontSize && Math.abs(previous.y-y)<1 && previous.anchor===position.anchor && previous.atEnd===position.atEnd && Math.abs(previous.fraction-position.fraction)<1e-6 && Math.abs(previous.ratio-position.ratio)<1e-6) return;
+  if (previous && previous.fontSize===fontSize && previous.block?.index===block?.index && Math.abs((previous.block?.fraction || 0)-(block?.fraction || 0))<1e-6 && Math.abs(previous.y-y)<1 && previous.anchor===position.anchor && previous.atEnd===position.atEnd && Math.abs(previous.fraction-position.fraction)<1e-6 && Math.abs(previous.ratio-position.ratio)<1e-6) return;
   readingPositions.set(current.path,position); dirtyPositions.set(current.path,position);
   selectForSaving();
 }
@@ -152,6 +154,10 @@ async function hydrateLibrary(resume) {
     const doc=position && documents.get(position.path);
     if (!doc || doc.demo || position.revision!==doc.revision || !Number.isFinite(position.y) || position.y<0 || !Number.isFinite(position.ratio) || position.ratio<0 || position.ratio>1 || !Number.isFinite(position.fraction) || position.fraction<0 || position.fraction>1 || typeof position.anchor!=='string' || position.anchor.length>1000 || !Number.isFinite(position.updatedAt)) return;
     if (position.updatedAt>(readingPositions.get(doc.path)?.updatedAt || 0)) {
+      const b=position.block;
+      if(b!==undefined && (!b || !Number.isInteger(b.index) || b.index<0 || b.index>1000000 || !Number.isFinite(b.fraction) || b.fraction<0 || b.fraction>1)) {
+        position={...position}; delete position.block;
+      }
       if (position.fontSize===undefined && migrationFontSize) {
         position={...position,fontSize:migrationFontSize};
         dirtyPositions.set(doc.path,position);
@@ -326,8 +332,18 @@ async function restoreLibrary() {
     $('restore-options').disabled=false; $('restore-cancel').disabled=false; renderLibraryStatus();
   }
 }
+const blockSelector='p,li,pre,table,h1,h2,h3,h4,h5,h6,.mermaid-container';
+function documentBlocks() {
+  return [...$('document').querySelectorAll(blockSelector)].filter(el=>!el.parentElement.closest(blockSelector));
+}
+function cachedReadingBlock(y) {
+  let low=0,high=blockPositions.length;
+  while(low<high) { const middle=(low+high)>>>1; if(blockPositions[middle].top<=y) low=middle+1; else high=middle; }
+  const index=Math.max(0,low-1),rect=blockPositions[index];
+  if(rect) return {index,fraction:Math.max(0,Math.min(1,(y-rect.top)/Math.max(1,rect.height)))};
+}
 function readingBlock(y) {
-  const blocks=$('document').querySelectorAll('p,li,pre,table,h1,h2,h3,h4,h5,h6,.mermaid-container');
+  const blocks=documentBlocks();
   let low=0,high=blocks.length;
   while (low<high) {
     const middle=(low+high)>>>1;
@@ -357,8 +373,9 @@ async function resumePosition(position,task) {
       const end=activeHeadings[index+1] ? activeHeadings[index+1].getBoundingClientRect().top+scrollY : document.documentElement.scrollHeight;
       return top+position.fraction*Math.max(1,end-top)-150;
     };
-    let point;
-    if (!position.atEnd && Number.isInteger(position.fontSize) && position.fontSize>=13 && position.fontSize<=22 && position.fontSize!==fontSize) {
+    const block=position.block,element=block && documentBlocks()[block.index];
+    let point=element ? {element,fraction:block.fraction} : undefined;
+    if (!point && !position.atEnd && Number.isInteger(position.fontSize) && position.fontSize>=13 && position.fontSize<=22 && position.fontSize!==fontSize) {
       // Reconstruct the saved layout before interpreting its section fraction.
       // Reflow can change different paragraphs by different amounts.
       try {
@@ -577,9 +594,19 @@ function scheduleProgress() {
 
 function updateProgress() {
   const article = $('document');
+  const changed=layoutWidth!==innerWidth || layoutHeight!==innerHeight;
+  const saved=changed && !resumeTask && displayedDocument===current && readingPositions.get(current.path);
+  if(changed) measureHeadings=true;
   if (measureHeadings) {
+    readingBlocks=documentBlocks();
+    blockPositions=readingBlocks.map(el=>{const r=el.getBoundingClientRect();return {top:r.top+scrollY,height:r.height};});
     headingPositions = activeHeadings.map(heading => heading.getBoundingClientRect().top + window.scrollY);
+    layoutWidth=innerWidth; layoutHeight=innerHeight;
     measureHeadings = false;
+  }
+  if(saved && saved.revision===current.revision && saved.block && readingBlocks[saved.block.index]) {
+    const max=Math.max(0,document.documentElement.scrollHeight-innerHeight);
+    window.scrollTo({top:saved.atEnd ? max : Math.max(0,Math.min(max,blockTarget({element:readingBlocks[saved.block.index],fraction:saved.block.fraction}))),behavior:'instant'});
   }
   const top = window.scrollY + article.getBoundingClientRect().top;
   const length = Math.max(1, article.offsetHeight - window.innerHeight + 100);
