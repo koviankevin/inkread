@@ -6,7 +6,7 @@ import {MAX_DOCUMENTS,MAX_DOCUMENT_BYTES,MAX_TEXT_BYTES,MAX_IMAGE_BYTES,MAX_ASSE
 const imagePath=path=>/\.(png|jpe?g|gif|webp|avif|svg|bmp|ico)$/i.test(path);
 const safePath=path=>typeof path==='string' && path && normalizePath(path)===path && !path.startsWith('/') && !path.startsWith('範例/');
 function fail(code,message) { const error=new Error(message); error.code=code; throw error; }
-function capacity(documents,assets) {
+export function validateLibraryCapacity(documents,assets) {
   // Stop per record: shared mappings can expand when serialized across many copies.
   let linkBytes=0;
   for (const {path,linkBase,linkTargets} of documents) {
@@ -29,7 +29,7 @@ export function storedLibrarySnapshot(saved) {
     if (!safePath(row.path) || !imagePath(row.path) || !(row.blob instanceof Blob)) fail('EXISTING_INVALID','目前文件庫有無法讀取的圖片，請保留原始文件後再試。');
     return {path:row.path,blob:row.blob};
   });
-  capacity(documents,assets);
+  validateLibraryCapacity(documents,assets);
   const docs=new Map(documents.map(doc=>[doc.path,doc])),positions=new Map();
   for (const row of [...saved.positions,saved.checkpoint?.position].filter(Boolean)) {
     if (validPosition(row,docs.get(row.path)) && (!positions.has(row.path) || row.updatedAt>positions.get(row.path).updatedAt)) positions.set(row.path,{...row});
@@ -86,6 +86,6 @@ export function planRestore(existing,incoming,mode,choices=new Map()) {
   }
   const selected=mapping.get(incoming.current) || incoming.current;
   const result={documents:[...documents.values()],assets:[...assets.values()],positions:[...positions.values()],current:mode==='merge' && documents.has(existing.current) ? existing.current : documents.has(selected) ? selected : documents.keys().next().value || null,renamed};
-  capacity(result.documents,result.assets);
+  validateLibraryCapacity(result.documents,result.assets);
   return result;
 }

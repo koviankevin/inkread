@@ -8,7 +8,7 @@ export function createLibraryStore(onClear=()=>{}) {
   const name = `inkread-library:${scope}`;
   const checkpointKey = `${name}:checkpoint`;
   const positionKey = (generation,path) => `${checkpointKey}:${generation}:${encodeURIComponent(path)}`;
-  let connection, epoch, queue = Promise.resolve(), channel;
+  let connection, epoch, structure=null, queue = Promise.resolve(), channel;
   function checkpointKeys() {
     try { return Object.keys(localStorage).filter(key=>key.startsWith(`${checkpointKey}:`)); }
     catch { return []; }
@@ -26,6 +26,8 @@ export function createLibraryStore(onClear=()=>{}) {
     channel.onmessage = event => {
       if (event.data?.type === 'clear' && typeof event.data.epoch === 'string' && epoch !== event.data.epoch) {
         epoch = event.data.epoch; onClear();
+      } else if (event.data?.type==='edit' && typeof event.data.structure==='string' && structure!==event.data.structure) {
+        onClear({type:'edit'});
       }
     };
   } catch { /* IndexedDB remains usable when BroadcastChannel is unavailable. */ }
@@ -57,7 +59,7 @@ export function createLibraryStore(onClear=()=>{}) {
   const requestValue = request => new Promise((resolve,reject)=>{ request.onsuccess=()=>resolve(request.result); request.onerror=()=>reject(request.error); });
   const enqueue = action => { const pending=queue.then(action); queue=pending.catch(()=>{}); return pending; };
   function mutate(action,{reset=false,expectedRevision}={}) {
-    const expected = epoch;
+    const expected = epoch,expectedStructure=structure;
     return enqueue(async()=>{
       const db = await open();
       return new Promise((resolve,reject)=>{
@@ -80,6 +82,7 @@ export function createLibraryStore(onClear=()=>{}) {
               try { tx.abort(); } catch { /* Already aborted; onabort still reports the failure. */ }
             }
           };
+          const checkRevision=()=>{
           if (expectedRevision===undefined) apply();
           else {
             const revision=tx.objectStore('meta').get('revision');
@@ -89,6 +92,17 @@ export function createLibraryStore(onClear=()=>{}) {
               } else apply();
             };
           }
+          };
+          if (reset) checkRevision();
+          else {
+            const generation=tx.objectStore('meta').get('structure');
+            generation.onsuccess=()=>{
+              if ((generation.result ?? null)!==expectedStructure) {
+                failure=new Error('Library files changed in another tab'); failure.code='LIBRARY_CHANGED';
+                tx.abort(); onClear({type:'edit'});
+              } else checkRevision();
+            };
+          }
         };
       });
     });
@@ -96,18 +110,20 @@ export function createLibraryStore(onClear=()=>{}) {
   return {
     get epoch() { return epoch; },
     async load() {
-      const previousEpoch=epoch;
+      const previousEpoch=epoch,previousStructure=structure;
       const db = await open();
       const tx=db.transaction(['documents','assets','positions','meta'],'readonly');
-      const [documents,assets,positions,current,generation,revision] = await Promise.all([
+      const [documents,assets,positions,current,generation,revision,fileStructure] = await Promise.all([
         requestValue(tx.objectStore('documents').getAll(undefined,MAX_DOCUMENTS+1)),
         requestValue(tx.objectStore('assets').getAll(undefined,MAX_IMPORT_FILES+1)),
         requestValue(tx.objectStore('positions').getAll(undefined,MAX_DOCUMENTS+1)),
         requestValue(tx.objectStore('meta').get('current')),
         requestValue(tx.objectStore('meta').get('epoch')),
         requestValue(tx.objectStore('meta').get('revision')),
+        requestValue(tx.objectStore('meta').get('structure')),
       ]);
       if (epoch===previousEpoch) epoch=generation;
+      if (structure===previousStructure) structure=fileStructure ?? null;
       let checkpoint;
       try { checkpoint=JSON.parse(localStorage.getItem(checkpointKey)); } catch { /* Optional shutdown checkpoint. */ }
       if (checkpoint?.epoch !== epoch) checkpoint=undefined;
@@ -122,7 +138,7 @@ export function createLibraryStore(onClear=()=>{}) {
           if (saved?.epoch===epoch && saved.position?.path===doc.path) positions.push(saved.position);
         } catch { /* A malformed optional checkpoint must not prevent loading. */ }
       }
-      return {documents,assets,positions,current,checkpoint,revision:revision ?? null};
+      return {documents,assets,positions,current,checkpoint,revision:revision ?? null,structure};
     },
     write({documents=[],assets=[],positions=[],current}) {
       return mutate(tx=>{
@@ -145,6 +161,24 @@ export function createLibraryStore(onClear=()=>{}) {
       }
       try { localStorage.setItem(checkpointKey,JSON.stringify({epoch,current,position})); } catch { /* IDB still saves periodically. */ }
     },
+    async edit({documents,positions,current,removedPaths},expectedRevision) {
+      const next=newRevision();
+      await mutate(tx=>{
+        for (const path of removedPaths) {
+          tx.objectStore('documents').delete(path); tx.objectStore('positions').delete(path);
+        }
+        for (const doc of documents) tx.objectStore('documents').put(doc);
+        for (const position of positions) tx.objectStore('positions').put(position);
+        tx.objectStore('meta').put(current,'current');
+        tx.objectStore('meta').put(next,'structure');
+      },{expectedRevision});
+      structure=next;
+      // Preserve other documents' per-tab bookmarks and shutdown checkpoints.
+      for (const path of removedPaths) {
+        try { localStorage.removeItem(positionKey(epoch,path)); } catch { /* Optional checkpoint. */ }
+      }
+      channel?.postMessage({type:'edit',structure});
+    },
     async replace({documents,assets,positions,current},expectedRevision) {
       const next=newRevision(),obsolete=checkpointKeys();
       // Clearing and all replacement records commit together, or all roll back.
@@ -155,6 +189,7 @@ export function createLibraryStore(onClear=()=>{}) {
         tx.objectStore('meta').put(current,'current');
       },{expectedRevision});
       epoch=next;
+      structure=null;
       discardCheckpoints(obsolete);
       channel?.postMessage({type:'clear',epoch});
     },
@@ -165,6 +200,7 @@ export function createLibraryStore(onClear=()=>{}) {
         tx.objectStore('meta').put(next,'epoch');
       },{reset:true});
       epoch=next;
+      structure=null;
       discardCheckpoints(obsolete);
       channel?.postMessage({type:'clear',epoch});
     },

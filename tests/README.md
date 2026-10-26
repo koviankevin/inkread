@@ -1,5 +1,34 @@
 # Browser acceptance
 
+## Product library acceptance
+
+`product-library.mjs` covers first-use guidance, actual content sizes, atomic
+rename, incoming Markdown links, safe rejection of duplicate/unsafe names,
+storage rollback, downloaded backups, allowlisted diagnostics, confirmed delete,
+shared images, narrow-screen keyboard operation and whole-browser native offline
+restart. Same-document tabs retain independent paragraphs and renamed legacy URL
+bookmarks are validated by document revision. Paragraph/fraction precision is
+unchanged. `library-management.mjs` supplies focused module and binary-codec checks.
+
+`product-conflict.mjs` verifies that another tab's structural edit does not erase
+an unsaved import or replay an obsolete document. The pending content stays
+visible and exportable; after closing it, the committed library contains only the
+new version. Fault injection is isolated to the failing tab's native IDB writes.
+
+On Windows Firefox, automation's scrollIntoView around the sticky sidebar moved
+the reader before the support button was clicked. A minimal native-mouse
+comparison preserved the paragraph. The suite therefore scrolls only the sidebar,
+verifies the painted target and uses native mouse input for that button. It also
+checks paragraphs after each dialog/backup action and activates tabs for visible
+layout observations; it never scrolls back to manufacture a passing restore.
+Image assertions wait for real decoding and still require the original dimensions.
+
+Windows WebKit could not register a worker in both pristine 1.7.10 and this
+candidate, with and without folder input. Local runs do not replace this check
+with a fake reader or HTTP error; complete offline coverage uses the pinned Linux
+WebKit job. Safari/iOS and native Firefox/WebKit browser-shell session restore
+remain outside that engine-level evidence.
+
 
 
 The local HTTP harness retries OS-assigned ports restricted by the Fetch port-blocking table. An identical Firefox HTML fixture failed on port 2049 and loaded on 2050; this is test infrastructure, and browser security preferences remain unchanged.

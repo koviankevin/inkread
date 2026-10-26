@@ -199,7 +199,7 @@ try {
   pass('390px mobile: no overflow, functional sidebar and TOC');
 
   await page.setViewportSize({width:1440,height:1050});
-  await page.locator('#clear-files').click();
+  await page.locator('#clear-files').click();await page.locator('#confirm-accept').click();
   await page.waitForFunction(()=>document.querySelectorAll('#user-files button').length===0);
   assert.equal(await page.locator('#user-files button').count(),0);
   await context.setOffline(false);

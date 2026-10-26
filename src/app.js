@@ -1,4 +1,5 @@
 import './style.css';
+import './library-ui.css';
 import {createIcons, Plus, Search, X, FolderOpen, ShieldCheck, CircleHelp, PanelLeft, ChevronRight, Minus, Moon, Sun, Printer, List, FileText, FileUp, BookOpen, ArrowUp, Copy, Check, Sparkles, ImageOff, ArrowLeftRight, FileCode2, ChartNoAxesCombined} from 'lucide';
 import {renderMarkdown, sanitizeDiagram, safeDiagramSource, sanitizeFormula} from './renderer.js';
 import {loadVendor} from './vendor-loader.js';
@@ -7,7 +8,9 @@ import {createLibraryStore,newRevision} from './library-store.js';
 import {encodeBackup,decodeBackup} from './library-backup.js';
 import {storedLibrarySnapshot,restoreConflicts,planRestore} from './library-restore.js';
 import {normalizePath, isMarkdown, imageKind} from './paths.js';
-import {documentLinks,resolveDocumentPath} from './document-links.js';
+import {documentLinks,resolveDocumentPath,validLibraryPath} from './document-links.js';
+import {planDocumentEdit,resolveSavedDocument} from './library-management.js';
+import {createLibraryHealth} from './library-health.js';
 import {MAX_DOCUMENT_BYTES, MAX_DOCUMENTS, MAX_TEXT_BYTES, MAX_IMAGE_BYTES, MAX_ASSET_BYTES, MAX_IMPORT_FILES, textBytes} from './limits.js';
 import introduction from '../samples/開始閱讀.md';
 import charts from '../samples/圖表與公式.md';
@@ -55,12 +58,15 @@ let libraryLoading = true, libraryReady = false, libraryGeneration = 0;
 let saveTimer, savePromise, pendingSelection, storageError, clearFailed = false, clearing = false, resumeTask;
 let transferBusy=false, restoreCommitting=false, restoreSnapshot, importsInFlight=0;
 let restoreBase, restorePreparing=false;
+let managementBusy=false,managementPath,managementRevision;
 let tabBookmarkTimer,lastTabBookmark=0;
 const restoreChoices=new Map(), restorePreviewURLs=[];
-const library = createLibraryStore(()=>{
+const library = createLibraryStore(change=>{
+  if (change?.type==='edit') { void syncEditedLibrary(); return; }
   libraryReady=false; storageError=undefined; clearFailed=false; resetLibraryMemory();
   toast('已同步其他分頁的文件庫變更，重新開啟可讀取最新文件庫。');
 });
+const health=createLibraryHealth(()=>({documents:[...documents.values()].filter(doc=>!doc.demo).length,images:assetBlobs.size,textBytes:[...documents.values()].filter(doc=>!doc.demo).reduce((sum,doc)=>sum+(doc.bytes || textBytes(doc.source)),0),imageBytes:[...assetSizes.values()].reduce((sum,size)=>sum+size,0),errorName:storageError?.name}));
 try { history.scrollRestoration = 'manual'; } catch { /* Local-file browser policies vary. */ }
 
 function hasPendingSave() { return dirtyDocuments.size || dirtyAssets.size || dirtyPositions.size || pendingSelection; }
@@ -78,9 +84,13 @@ function renderLibraryStatus() {
   status.title=storageError ? '瀏覽器可能禁止儲存或空間不足。請重試；尚未保存的資料關閉後可能遺失。' : '只保存在這個瀏覽器，不會上傳；可按文件清單的清除按鈕刪除。';
   $('library-retry').hidden=state!=='error';
   $('library-retry').textContent=clearFailed ? '重試清除' : '重試保存';
+  $('library-retry').disabled=storageError?.name==='LibraryEditConflict';
+  if (storageError?.name==='LibraryEditConflict') $('library-retry').textContent='請先備份後重開';
   $('backup-library').disabled=transferBusy || clearing || libraryLoading || !([...documents.values()].some(doc=>!doc.demo) || assetBlobs.size);
-  $('restore-library').disabled=transferBusy || clearing || libraryLoading;
-  $('clear-files').disabled=transferBusy;
+  $('restore-library').disabled=transferBusy || clearing || libraryLoading || storageError?.name==='LibraryEditConflict';
+  $('clear-files').disabled=transferBusy || clearing || libraryLoading || storageError?.name==='LibraryEditConflict';
+  $('manage-library').disabled=transferBusy || clearing || libraryLoading || !libraryReady || ![...documents.values()].some(doc=>!doc.demo);
+  health.render();
 }
 function scheduleLibrarySave() {
   if (libraryLoading || clearing || storageError || saveTimer) return;
@@ -121,7 +131,7 @@ function rememberTabDocument(immediate=true) {
   catch { /* Reading and shared-library recovery still work if history is blocked. */ }
 }
 function rememberPosition() {
-  if (libraryLoading || clearing || restorePreparing || (transferBusy && restoreBase) || resumeTask || printMedia.matches || current.demo || displayedDocument!==current || documents.get(current.path)!==current) return;
+  if (libraryLoading || clearing || managementBusy || restorePreparing || (transferBusy && restoreBase) || resumeTask || printMedia.matches || current.demo || displayedDocument!==current || documents.get(current.path)!==current) return;
   const y=window.scrollY, end=document.documentElement.scrollHeight;
   const index=Math.max(0,activeHeadingIndex), top=headingPositions[index];
   const height=Math.max(1,(headingPositions[index+1] || end) - (top || 0));
@@ -137,7 +147,7 @@ function rememberPosition() {
   selectForSaving();
 }
 function checkpointLibrary() {
-  if (libraryLoading || clearing || (transferBusy && restoreBase) || !libraryReady) return;
+  if (libraryLoading || clearing || managementBusy || (transferBusy && restoreBase) || !libraryReady) return;
   if (!resumeTask) updateProgress();
   library.checkpoint(pendingSelection || {path:current.path,updatedAt:Date.now()},readingPositions.get(current.path));
 }
@@ -149,6 +159,7 @@ function saveOnExit() {
 }
 function flushLibrary() {
   clearTimeout(saveTimer); saveTimer=undefined;
+  if (storageError?.name==='LibraryEditConflict') return Promise.resolve();
   if (libraryLoading || clearing) return Promise.resolve();
   if (savePromise) return savePromise;
   const generation=libraryGeneration;
@@ -213,11 +224,14 @@ async function hydrateLibrary(resume) {
   try {
     const encoded=location.hash.split('&position=')[1];
     const bookmark=encoded?.length<=4096 && JSON.parse(decodeURIComponent(encoded));
-    if (bookmark?.epoch===library.epoch && bookmark.position?.path===tabDocumentPath()) restorePosition(bookmark.position,true);
+    if (bookmark?.epoch===library.epoch && bookmark.position?.path===tabDocumentPath()) {
+      const doc=resolveSavedDocument(documents,bookmark.position.path,bookmark.position.revision);
+      if (doc) restorePosition({...bookmark.position,path:doc.path},true);
+    }
   } catch { /* Invalid/old URLs safely use the saved document position. */ }
   const selected=(saved.checkpoint?.current?.updatedAt || 0)>(saved.current?.updatedAt || 0) ? saved.checkpoint.current : saved.current;
   libraryReady=true;
-  const path=documents.has(tabDocumentPath()) ? tabDocumentPath() : selected?.path;
+  const path=resolveSavedDocument(documents,tabDocumentPath())?.path || selected?.path;
   if (resume && documents.has(path)) current=documents.get(path);
   if (!resume) { renderFiles(); renderImages(currentImages); }
 }
@@ -239,8 +253,83 @@ async function clearLibrary() {
     await library.clear();
     resetLibraryMemory(); libraryReady=true; storageError=undefined; clearFailed=false;
     toast('已刪除此瀏覽器保存的文件、圖片與閱讀進度。');
+    health.changed();
   } catch(error) { storageError=error; clearFailed=true; }
   finally { clearing=false; renderLibraryStatus(); }
+}
+
+async function syncEditedLibrary() {
+  if (dirtyDocuments.size || dirtyAssets.size || importsInFlight) {
+    // Keep unsaved imports visible/exportable; silently rehydrating would lose
+    // them, while replaying an old edit could resurrect another tab's deletion.
+    clearTimeout(saveTimer); saveTimer=undefined;
+    storageError=new Error('Unsaved content retained after another tab edited the library');
+    storageError.name='LibraryEditConflict'; libraryReady=false;
+    renderLibraryStatus(); return;
+  }
+  const path=current.path,position=readingPositions.get(path);
+  libraryReady=false; libraryLoading=true;
+  resetLibraryMemory();
+  const generation=libraryGeneration;
+  try {
+    await hydrateLibrary(false);
+    if (generation!==libraryGeneration) return;
+    const doc=resolveSavedDocument(documents,path,position?.revision) || [...documents.values()].find(doc=>!doc.demo) || demoDocs[0];
+    if (position && doc.revision===position.revision) readingPositions.set(doc.path,{...position,path:doc.path});
+    libraryLoading=false; storageError=undefined;
+    showDocument(doc,{record:false,resume:true});
+    toast('文件庫已更新，已保留這個分頁的閱讀位置。');
+  } catch(error) { if (generation===libraryGeneration) { storageError=error; libraryLoading=false; renderLibraryStatus(); } }
+}
+
+function confirmAction(title,message,label) {
+  const dialog=$('confirm-dialog');
+  if (dialog.open) return Promise.resolve(false);
+  $('confirm-title').textContent=title; $('confirm-message').textContent=message; $('confirm-accept').textContent=label;
+  dialog.returnValue='cancel'; dialog.showModal();
+  return new Promise(resolve=>dialog.addEventListener('close',()=>resolve(dialog.returnValue==='confirm'),{once:true}));
+}
+
+function selectManagedDocument() {
+  const doc=documents.get($('manage-document').value);
+  managementPath=doc?.path; managementRevision=doc?.revision;
+  $('manage-name').value=doc?.name || ''; $('manage-error').textContent='';
+}
+function openManagement() {
+  if (transferBusy || clearing || libraryLoading || !libraryReady) return;
+  updateProgress();
+  const select=$('manage-document'); select.replaceChildren();
+  for (const doc of documents.values()) if (!doc.demo) {
+    const option=document.createElement('option'); option.value=doc.path; option.textContent=doc.path; select.append(option);
+  }
+  if (!select.options.length) return;
+  if (!current.demo) select.value=current.path;
+  selectManagedDocument(); $('manage-dialog').showModal();
+}
+async function editManagedDocument(kind) {
+  if (managementBusy || transferBusy || clearing || !managementPath) return;
+  if (kind==='delete' && !await confirmAction('刪除這份文件？',`將刪除「${managementPath}」及其閱讀進度。圖片會保留，避免影響其他文件；硬碟上的原始檔不受影響。`,'刪除文件')) return;
+  if (transferBusy || clearing || libraryLoading) return;
+  updateProgress(); managementBusy=true; transferBusy=true;
+  $('manage-rename').disabled=true; $('manage-delete').disabled=true; $('manage-cancel').disabled=true;
+  $('manage-error').textContent=''; renderLibraryStatus();
+  try {
+    for (let i=0;i<3 && hasPendingSave();i++) await flushLibrary();
+    if (storageError || hasPendingSave()) throw new Error('文件庫尚未保存。請先重試保存；目前資料仍保留。');
+    const snapshot=storedLibrarySnapshot(await library.load());
+    if (snapshot.documents.find(doc=>doc.path===managementPath)?.revision!==managementRevision) throw new Error('這份文件已在其他分頁變更，請關閉後重新選擇。');
+    const plan=planDocumentEdit({...snapshot,current:current.path},{kind,path:managementPath,name:$('manage-name').value});
+    await library.edit({...plan,current:{path:plan.current,updatedAt:Date.now()}},snapshot.revision);
+    health.changed();
+    await syncEditedLibrary();
+    $('manage-dialog').close();
+    toast(kind==='rename' ? '已重新命名，圖片、文件連結與閱讀進度皆保留。' : '已刪除文件與其進度，其他文件和圖片仍保留。');
+  } catch(error) { $('manage-error').textContent=error.code==='LIBRARY_CHANGED' ? '其他分頁已更新文件庫，這次未變更。請關閉後重新確認。' : ['QuotaExceededError','SecurityError','NotAllowedError'].includes(error.name) ? '操作未完成，原文件與進度仍保留。請先備份，確認瀏覽器允許儲存且空間足夠，再重試。' : error.message || '操作未完成，原資料仍保留。請重試。'; }
+  finally {
+    managementBusy=false; transferBusy=false;
+    for (const id of ['manage-rename','manage-delete','manage-cancel']) $(id).disabled=false;
+    renderLibraryStatus();
+  }
 }
 
 function transferAvailable() {
@@ -252,12 +341,14 @@ async function backupLibrary() {
   if (!transferAvailable()) return;
   measureHeadings=true; updateProgress();
   const snapshot={documents:[...documents.values()].filter(doc=>!doc.demo).map(doc=>({...doc})),assets:[...assetBlobs].map(([path,blob])=>({path,blob})),positions:[...readingPositions.values()].filter(position=>position.revision===documents.get(position.path)?.revision),current:current.path};
+  const backupToken=health.contentToken();
   transferBusy=true; renderLibraryStatus();
   try {
     const blob=await encodeBackup(snapshot);
     const url=URL.createObjectURL(blob),link=document.createElement('a');
     link.href=url; link.download=`墨閱文件庫-${new Date().toISOString().slice(0,10)}.inkread`;
     document.body.append(link); link.click(); link.remove();
+    health.exported(backupToken);
     setTimeout(()=>URL.revokeObjectURL(url),60000);
     toast('已產生文件庫備份，請確認瀏覽器的下載檔案。');
   } catch { toast('無法產生備份，請保留目前文件並重試。'); }
@@ -355,6 +446,7 @@ async function restoreLibrary() {
     const selected=snapshot.current || restoredDocuments[0]?.path || demoDocs[0].path;
     await library.replace({documents:restoredDocuments,assets:snapshot.assets,positions,current:{path:selected,updatedAt:Date.now()}},restoreBase.revision);
     committed=true;
+    health.changed();
     resetLibraryMemory();
     for (const doc of restoredDocuments) {
       documents.set(doc.path,doc);
@@ -504,7 +596,10 @@ function renderFiles() {
   $('user-files').replaceChildren();
   let userCount = 0;
   let filteredCount = 0;
-  for (const doc of documents.values()) {
+  const rows=[...documents.values()],sort=$('file-sort').value;
+  if (sort==='name') rows.sort((a,b)=>a.path.localeCompare(b.path,'zh-Hant'));
+  if (sort==='recent') rows.sort((a,b)=>(readingPositions.get(b.path)?.updatedAt || 0)-(readingPositions.get(a.path)?.updatedAt || 0));
+  for (const doc of rows) {
     if (!doc.demo) userCount++;
     if (search && !doc.path.toLocaleLowerCase().includes(search)) continue;
     if (!doc.demo) filteredCount++;
@@ -861,7 +956,7 @@ function canStoreDocument(doc, bytes) {
 }
 
 async function importFiles(fileEntries) {
-  if (clearing || transferBusy) { toast('文件庫正在處理資料，請稍候再匯入。'); return; }
+  if (clearing || transferBusy || libraryLoading) { toast('文件庫正在處理資料，請稍候再匯入。'); return; }
   importsInFlight++;
   try {
   const generation=libraryGeneration;
@@ -875,6 +970,7 @@ async function importFiles(fileEntries) {
     if (!path) continue;
     // Keep bundled examples separate from user-provided paths.
     if (path.startsWith('範例/')) path = `匯入/${path}`;
+    if (!validLibraryPath(path)) { failures++; continue; }
     if (isMarkdown(path)) {
       if (file.size > MAX_DOCUMENT_BYTES || !canStoreDocument({path},file.size)) { skipped++; continue; }
       try {
@@ -913,7 +1009,7 @@ async function importFiles(fileEntries) {
     refreshIcons();
     toast(`已載入 ${assetCount} 張圖片${skipped ? `；${skipped} 份超過容量或數量限制已略過` : ''}。`);
   } else toast(skipped ? '超過匯入限制：單份文件 2 MiB、文件共 200 份／20 MiB、圖片單張 20 MiB／共 100 MiB、每次 1,000 份檔案。' : failures ? '檔案無法讀取，請重新選取。' : '沒有找到 Markdown 文件。支援 .md、.markdown 與 .txt。');
-  if (added.length || assetCount) await flushLibrary();
+  if (added.length || assetCount) { health.changed(); await flushLibrary(); }
   } finally { importsInFlight--; }
 }
 
@@ -967,8 +1063,26 @@ for (const id of ['file-input','folder-input']) $(id).addEventListener('change',
   await importFiles(files);
 });
 $('file-search').addEventListener('input',renderFiles);
-$('clear-files').addEventListener('click',()=>{ void clearLibrary(); });
+$('clear-files').addEventListener('click',async()=>{
+  if (transferBusy || clearing || libraryLoading) return;
+  if (await confirmAction('清除整個文件庫？',`將刪除 ${[...documents.values()].filter(doc=>!doc.demo).length} 份文件、${assetBlobs.size} 張圖片與全部閱讀進度，並同步到其他墨閱分頁。請先備份重要資料；硬碟上的原始檔不受影響。`,'清除文件庫')) await clearLibrary();
+});
+$('manage-library').addEventListener('click',openManagement);
+$('manage-document').addEventListener('change',selectManagedDocument);
+$('manage-name').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();void editManagedDocument('rename');}});
+$('manage-rename').addEventListener('click',()=>void editManagedDocument('rename'));
+$('manage-delete').addEventListener('click',()=>void editManagedDocument('delete'));
+$('manage-dialog').addEventListener('cancel',event=>{if (managementBusy) event.preventDefault();});
+$('file-sort').value=['imported','name','recent'].includes(preference('file-sort')) ? preference('file-sort') : 'imported';
+$('file-sort').addEventListener('change',()=>{preference('file-sort',$('file-sort').value);renderFiles();});
 $('backup-library').addEventListener('click',()=>{ void backupLibrary(); });
+$('support-button').addEventListener('click',()=>{
+  $('diagnostic-content').value=JSON.stringify(health.diagnostic(),null,2); $('diagnostic-copy').textContent='複製診斷資訊'; $('support-dialog').showModal();
+});
+$('diagnostic-copy').addEventListener('click',async()=>{
+  try { await copyText($('diagnostic-content').value); $('diagnostic-copy').textContent='已複製'; }
+  catch { toast('無法自動複製，請選取診斷文字後手動複製。'); }
+});
 $('restore-library').addEventListener('click',()=>{ if (transferAvailable()) $('backup-input').click(); });
 $('backup-input').addEventListener('change',event=>{
   const file=event.target.files[0]; event.target.value=''; void previewRestore(file);
@@ -995,10 +1109,12 @@ $('paste-submit').addEventListener('click', () => {
   if (source.length > MAX_DOCUMENT_BYTES) { toast('單份文件上限為 2 MiB，請先分割內容。'); return; }
   const bytes = textBytes(source);
   const doc = {path:`貼上/${pasteCounter + 1}/${name}`, name, source, bytes, pasted:true,revision:newRevision()};
+  if (!validLibraryPath(doc.path)) { $('paste-name').focus(); toast('檔名不可包含冒號、控制字元或過長路徑，請換個名稱再試。'); return; }
   if (!canStoreDocument(doc,bytes)) { toast('超過容量限制：單份文件 2 MiB、文件共 200 份／20 MiB。'); return; }
   pasteCounter++;
   documents.set(doc.path,doc);
   dirtyDocuments.set(doc.path,doc);
+  health.changed();
   $('paste-dialog').close();
   $('file-search').value = '';
   showDocument(doc);
@@ -1006,7 +1122,7 @@ $('paste-submit').addEventListener('click', () => {
   void flushLibrary();
 });
 $('help-button').addEventListener('click', () => $('help-dialog').showModal());
-for (const dialog of document.querySelectorAll('dialog')) dialog.addEventListener('click', e => { if (e.target === dialog && !(dialog.id==='restore-dialog' && restoreCommitting)) { const r = dialog.getBoundingClientRect(); if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) dialog.close(); } });
+for (const dialog of document.querySelectorAll('dialog')) dialog.addEventListener('click', e => { if (e.target === dialog && !(dialog.id==='restore-dialog' && restoreCommitting) && !(dialog.id==='manage-dialog' && managementBusy)) { const r = dialog.getBoundingClientRect(); if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) dialog.close(); } });
 $('brand-home').addEventListener('click', e => { e.preventDefault(); $('file-search').value = ''; showDocument(demoDocs[0]); });
 $('theme-toggle').addEventListener('click', () => setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'));
 $('font-minus').addEventListener('click', () => setFont(fontSize - 1, true));

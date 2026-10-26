@@ -27,6 +27,14 @@ test('backup and storage changes select dependent persistence behavior', () => {
   for (const s of ['checkpoint-storage', 'multitab-progress', 'same-document-progress', 'backup']) assert(p.chromium.includes(s));
   assert(!p.chromium.includes('lazy-features')); assert(!p.chromium.includes('offline-cache'));
 });
+test('document management and health changes select their integration coverage',()=>{
+  const management=selectTests(['src/library-management.js']);
+  assert.equal(management.ci,true);assert(management.compatible.includes('product-library'));
+  assert(management.chromium.includes('backup'));assert(!management.chromium.includes('lazy-features'));
+  assert.deepEqual(selectTests(['tests/library-management.mjs']).browsers,[]);
+  assert.equal(selectTests(['tests/library-management.mjs']).ci,true);
+  assert(selectTests(['src/library-health.js']).compatible.includes('product-library'));
+});
 test('layout, media and offline changes include paragraph restoration', () => {
   for (const path of ['src/style.css', 'src/renderer.js', 'src/math-engine.js', 'src/diagram-engine.js', 'src/service-worker.js']) {
     assert(selectTests([path]).compatible.includes('same-document-progress'), path);

@@ -1,0 +1,28 @@
+.library-tools{display:flex;align-items:center;gap:6px;margin-top:10px;font-size:12px;color:var(--secondary)}
+.sidebar{overflow-y:auto}.library-scroll{flex:1 0 100px}
+.library-tools select{min-width:0;flex:1;border:1px solid var(--line);border-radius:5px;background:var(--surface);color:var(--text);font:inherit;min-height:36px;padding:4px}
+.library-tools button{white-space:nowrap;font-size:12px;min-height:36px;padding:5px 7px;border:1px solid var(--line);border-radius:5px;color:var(--accent)}
+.library-tools select:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+#manage-dialog{width:min(540px,calc(100vw - 32px));overflow:auto;max-height:90vh}
+#manage-dialog label{display:block;margin:14px 0 7px;font-size:14px;color:var(--heading)}
+#manage-dialog .text-input{width:100%}
+#manage-dialog .modal-footer,#confirm-dialog .modal-footer{flex-wrap:wrap;gap:12px}
+#manage-dialog .modal-footer button,#confirm-dialog .modal-footer button{min-height:44px;padding:10px 14px}
+.danger-button{border:1px solid #b54a40;border-radius:6px;color:#a2372e;background:var(--surface)}
+#manage-error{color:#a2372e;overflow-wrap:anywhere;font-size:14px;line-height:1.7}
+#confirm-message{white-space:pre-line;overflow-wrap:anywhere;line-height:1.9}
+@media(prefers-color-scheme:dark){.danger-button,#manage-error{color:#f6a99f}}
+@media(max-width:720px){.library-tools select,.library-tools button{min-height:40px;font-size:13px}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;transition-duration:.01ms!important}}
+.first-use{padding-left:24px;margin:12px 0;font-size:13px;line-height:1.8;color:var(--secondary)}
+.first-use li+li{margin-top:8px}
+.library-health{border-top:1px solid var(--line);padding:10px 0;font-size:13px;color:var(--secondary);line-height:1.7}
+.library-health summary{cursor:pointer;min-height:32px}
+#library-capacity{white-space:pre-line}
+#library-error-detail{color:#a2372e}
+.support-button{font-size:13px;color:var(--accent);padding:8px 0;min-height:36px;text-align:left}
+#support-dialog{width:min(600px,calc(100vw - 32px));max-height:90vh;overflow:auto}
+#support-dialog p{font-size:14px;line-height:1.8}
+#support-dialog label{display:block;font-size:14px;margin:16px 0 8px}
+#diagnostic-content{width:100%;min-height:180px;font:13px/1.7 monospace;resize:vertical}
+@media(max-width:720px){.support-button{min-height:44px}}

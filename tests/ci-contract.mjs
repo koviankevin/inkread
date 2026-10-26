@@ -4,6 +4,7 @@ import {runInNewContext} from 'node:vm';
 import {test} from 'node:test';
 import {parse} from 'yaml';
 import './test-plan.mjs';
+import './library-management.mjs';
 
 const root = new URL('../', import.meta.url);
 const pages = parse(await readFile(new URL('.github/workflows/pages.yml', root), 'utf8'));

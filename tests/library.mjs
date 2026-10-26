@@ -166,7 +166,7 @@ try {
     window.__originalTransaction=IDBDatabase.prototype.transaction;
     IDBDatabase.prototype.transaction=function(stores,mode,...args){if(mode==='readwrite')throw new DOMException('Simulated clear failure','UnknownError');return window.__originalTransaction.call(this,stores,mode,...args);};
   });
-  await page.locator('#clear-files').click(); await page.locator('#library-retry').filter({hasText:'重試清除'}).waitFor();
+  await page.locator('#clear-files').click();await page.locator('#confirm-accept').click(); await page.locator('#library-retry').filter({hasText:'重試清除'}).waitFor();
   assert.equal(await page.locator('#user-files button').count(),2);
   await page.evaluate(()=>{IDBDatabase.prototype.transaction=window.__originalTransaction;});
   await page.locator('#library-retry').click();
