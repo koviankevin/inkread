@@ -1,0 +1,16 @@
+name: Product candidate verification
+on:
+  push:
+    branches: [codex/inkread-product-180]
+permissions:
+  contents: read
+concurrency:
+  group: product-candidate-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  focused:
+    uses: ./.github/workflows/compatibility.yml
+    with:
+      browsers: '["chromium","firefox","webkit"]'
+      chromium: '["product-library","product-conflict"]'
+      compatible: '["product-library","product-conflict"]'

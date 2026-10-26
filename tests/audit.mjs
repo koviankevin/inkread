@@ -141,7 +141,7 @@ try {
         },
       });
     });
-    await page.locator('#clear-files').click();
+    await page.locator('#clear-files').click();await page.locator('#confirm-accept').click();
     await page.waitForFunction(()=>document.querySelectorAll('#user-files button').length === 0);
     await page.locator('#library-status[data-state=saved]').waitFor();
     await page.locator('#file-input').setInputFiles(Array.from({length:201},(_,index)=>({name:`document-${index}.md`,mimeType:'text/markdown',buffer:Buffer.from('# 有界匯入')})));

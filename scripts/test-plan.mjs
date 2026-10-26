@@ -2,20 +2,23 @@ import {execFileSync} from 'node:child_process';
 import {appendFileSync, readFileSync, writeFileSync} from 'node:fs';
 import {pathToFileURL} from 'node:url';
 
-export const allSuites = ['verify', 'audit', 'lazy-features', 'offline-cache', 'library', 'backup', 'merge', 'font-progress', 'reading-controls', 'media-switch', 'multitab-progress', 'checkpoint-storage', 'tab-selection', 'same-document-progress'];
-export const compatibleSuites = ['backup', 'merge', 'font-progress', 'reading-controls', 'media-switch', 'multitab-progress', 'checkpoint-storage', 'tab-selection', 'same-document-progress'];
+export const allSuites = ['verify', 'audit', 'lazy-features', 'offline-cache', 'library', 'backup', 'merge', 'font-progress', 'reading-controls', 'media-switch', 'multitab-progress', 'checkpoint-storage', 'tab-selection', 'same-document-progress', 'product-library', 'product-conflict'];
+export const compatibleSuites = ['backup', 'merge', 'font-progress', 'reading-controls', 'media-switch', 'multitab-progress', 'checkpoint-storage', 'tab-selection', 'same-document-progress', 'product-library', 'product-conflict'];
 const reading = ['font-progress', 'reading-controls', 'media-switch', 'multitab-progress', 'tab-selection', 'same-document-progress'];
-const storage = ['library', 'backup', 'merge', 'checkpoint-storage', 'multitab-progress', 'tab-selection', 'same-document-progress'];
+const storage = ['library', 'backup', 'merge', 'checkpoint-storage', 'multitab-progress', 'tab-selection', 'same-document-progress', 'product-library', 'product-conflict'];
 const rules = {
   'src/app.js': allSuites,
   'src/library-store.js': storage,
+  'src/library-management.js': ['backup','merge','tab-selection','same-document-progress','product-library','product-conflict'],
+  'src/library-health.js': ['library','backup','product-library','product-conflict'],
+  'src/library-ui.css': ['verify',...reading,'product-library','product-conflict'],
   'src/library-backup.js': ['backup', 'merge'],
   'src/library-restore.js': ['backup', 'merge', ...storage],
-  'src/style.css': ['verify', ...reading],
-  'src/index.html': ['verify', 'audit', ...reading],
+  'src/style.css': ['verify', ...reading,'product-library','product-conflict'],
+  'src/index.html': ['verify', 'audit', ...reading,'product-library','product-conflict'],
   'src/renderer.js': ['verify', 'audit', 'lazy-features', 'media-switch', 'merge', 'same-document-progress'],
   'src/paths.js': ['verify', 'audit', ...storage],
-  'src/document-links.js': ['verify', 'library', 'backup', 'merge'],
+  'src/document-links.js': ['verify', 'library', 'backup', 'merge','product-library'],
   'src/limits.js': ['verify', 'audit', ...storage],
   'src/offline.js': ['offline-cache', 'library', 'media-switch', ...reading],
   'src/service-worker.js': ['offline-cache', ...reading],
@@ -32,7 +35,7 @@ export function selectTests(paths, full = false) {
   let ci = full, audit = full;
   for (const path of paths) {
     let suites = [];
-    if (/^(?:\.github\/|scripts\/(?:test-plan|run-selected)\.mjs$|tests\/(?:ci-contract|test-plan)\.mjs$)/.test(path)) ci = true;
+    if (/^(?:\.github\/|scripts\/(?:test-plan|run-selected)\.mjs$|tests\/(?:ci-contract|test-plan|library-management)\.mjs$)/.test(path)) ci = true;
     else if (rules[path]) suites = rules[path];
     else if (path.startsWith('samples/')) suites = ['verify', 'offline-cache'];
     else if (path === 'tests/startup.mjs') suites = ['startup'];
@@ -40,6 +43,7 @@ export function selectTests(paths, full = false) {
     else if (/\.(?:md|txt)$/i.test(path) || /^(?:LICENSE|NOTICE|\.gitignore)$/.test(path)) { /* Documentation only. */ }
     else { suites = allSuites; ci = true; }
     if (['package.json', 'package-lock.json'].includes(path)) audit = true;
+    if (['src/library-management.js','src/library-restore.js','src/document-links.js'].includes(path)) ci = true;
     suites.forEach(s => selected.add(s));
     reasons.push({path, suites: [...new Set(suites)]});
   }
