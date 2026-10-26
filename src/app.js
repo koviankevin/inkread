@@ -8,7 +8,7 @@ import {createLibraryStore,newRevision} from './library-store.js';
 import {encodeBackup,decodeBackup} from './library-backup.js';
 import {storedLibrarySnapshot,restoreConflicts,planRestore} from './library-restore.js';
 import {normalizePath, isMarkdown, imageKind} from './paths.js';
-import {documentLinks,resolveDocumentPath} from './document-links.js';
+import {documentLinks,resolveDocumentPath,validLibraryPath} from './document-links.js';
 import {planDocumentEdit,resolveSavedDocument} from './library-management.js';
 import {createLibraryHealth} from './library-health.js';
 import {MAX_DOCUMENT_BYTES, MAX_DOCUMENTS, MAX_TEXT_BYTES, MAX_IMAGE_BYTES, MAX_ASSET_BYTES, MAX_IMPORT_FILES, textBytes} from './limits.js';
@@ -87,8 +87,8 @@ function renderLibraryStatus() {
   $('library-retry').disabled=storageError?.name==='LibraryEditConflict';
   if (storageError?.name==='LibraryEditConflict') $('library-retry').textContent='請先備份後重開';
   $('backup-library').disabled=transferBusy || clearing || libraryLoading || !([...documents.values()].some(doc=>!doc.demo) || assetBlobs.size);
-  $('restore-library').disabled=transferBusy || clearing || libraryLoading;
-  $('clear-files').disabled=transferBusy;
+  $('restore-library').disabled=transferBusy || clearing || libraryLoading || storageError?.name==='LibraryEditConflict';
+  $('clear-files').disabled=transferBusy || clearing || libraryLoading || storageError?.name==='LibraryEditConflict';
   $('manage-library').disabled=transferBusy || clearing || libraryLoading || !libraryReady || ![...documents.values()].some(doc=>!doc.demo);
   health.render();
 }
@@ -970,6 +970,7 @@ async function importFiles(fileEntries) {
     if (!path) continue;
     // Keep bundled examples separate from user-provided paths.
     if (path.startsWith('範例/')) path = `匯入/${path}`;
+    if (!validLibraryPath(path)) { failures++; continue; }
     if (isMarkdown(path)) {
       if (file.size > MAX_DOCUMENT_BYTES || !canStoreDocument({path},file.size)) { skipped++; continue; }
       try {
@@ -1108,6 +1109,7 @@ $('paste-submit').addEventListener('click', () => {
   if (source.length > MAX_DOCUMENT_BYTES) { toast('單份文件上限為 2 MiB，請先分割內容。'); return; }
   const bytes = textBytes(source);
   const doc = {path:`貼上/${pasteCounter + 1}/${name}`, name, source, bytes, pasted:true,revision:newRevision()};
+  if (!validLibraryPath(doc.path)) { $('paste-name').focus(); toast('檔名不可包含冒號、控制字元或過長路徑，請換個名稱再試。'); return; }
   if (!canStoreDocument(doc,bytes)) { toast('超過容量限制：單份文件 2 MiB、文件共 200 份／20 MiB。'); return; }
   pasteCounter++;
   documents.set(doc.path,doc);
