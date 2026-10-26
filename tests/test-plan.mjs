@@ -4,12 +4,29 @@ import {mkdtemp, writeFile, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {spawnSync} from 'node:child_process';
-import {selectTests, allSuites, compatibleSuites, canReuse, createPlan} from '../scripts/test-plan.mjs';
+import {selectTests, allSuites, compatibleSuites, canReuse, createPlan, reviewedAccessibilityImpact} from '../scripts/test-plan.mjs';
 import {runSelected} from '../scripts/run-selected.mjs';
 
 test('documentation, license and Unicode handoff select no browsers', () => {
   const p = selectTests(['README.md', 'TESTING.md', 'AGENTS.md', '交接文件.md', 'LICENSE']);
   assert.deepEqual(p.browsers, []); assert.equal(p.ci, false); assert.equal(p.audit, false);
+});
+
+test('reviewed accessibility scope requires every exact changed blob and baseline',()=>{
+  const base='a'.repeat(40),sha='b'.repeat(40),before='c'.repeat(40),after='d'.repeat(40);
+  const paths=['src/app.js','src/index.html','src/accessibility.js','src/accessibility.css','tests/accessibility.mjs','tests/accessibility-impact.json'];
+  const profile={version:1,base,suite:'accessibility',files:paths.slice(0,-1).map(path=>({path,before:path.includes('/accessibility.')?null:before,after}))};
+  const readGit=(cmd,ref)=>{
+    if(cmd==='show')return JSON.stringify(profile);
+    const [commit,...parts]=ref.split(':'),file=profile.files.find(f=>f.path===parts.join(':'));
+    if(!file || commit===base && !file.before)throw Error('Missing blob');
+    return commit===base?file.before:file.after;
+  };
+  assert(reviewedAccessibilityImpact(paths,{base,sha,readGit}));
+  assert.equal(reviewedAccessibilityImpact([...paths,'src/library-store.js'],{base,sha,readGit}),null);
+  assert.equal(reviewedAccessibilityImpact(paths,{base:'e'.repeat(40),sha,readGit}),null);
+  assert.equal(reviewedAccessibilityImpact(paths,{base,sha,readGit:(cmd,ref)=>cmd==='rev-parse' && ref===`${sha}:src/app.js`?'e'.repeat(40):readGit(cmd,ref)}),null);
+  profile.files.push(profile.files[0]);assert.equal(reviewedAccessibilityImpact(paths,{base,sha,readGit}),null);
 });
 test('CI changes run contracts without functional suites or audit', () => {
   const p = selectTests(['.github/workflows/pages.yml', 'scripts/test-plan.mjs', 'scripts/run-selected.mjs', 'tests/test-plan.mjs', 'tests/ci-contract.mjs']);

@@ -1,5 +1,15 @@
 # Browser acceptance
 
+## Accessibility
+
+`accessibility.mjs` checks native keyboard navigation, mobile modal focus,
+dialog return focus, shortcut opt-out persistence, readable task names, code
+scrolling, light/dark contrast, forced colors, 320px reflow, reduced-motion font
+changes and paragraph preservation through portrait/landscape resizing. It uses
+the same .035 paragraph-fraction tolerance as existing reading tests. No backing
+library format or rendering engine is changed. The local axe audit engine is not
+shipped or added as a dependency. See `ACCESSIBILITY.md` for scope and limitations.
+
 ## Product library acceptance
 
 `product-library.mjs` covers first-use guidance, actual content sizes, atomic

@@ -1,5 +1,6 @@
 import './style.css';
 import './library-ui.css';
+import {setupAccessibleNavigation,labelReadingContent} from './accessibility.js';
 import {createIcons, Plus, Search, X, FolderOpen, ShieldCheck, CircleHelp, PanelLeft, ChevronRight, Minus, Moon, Sun, Printer, List, FileText, FileUp, BookOpen, ArrowUp, Copy, Check, Sparkles, ImageOff, ArrowLeftRight, FileCode2, ChartNoAxesCombined} from 'lucide';
 import {renderMarkdown, sanitizeDiagram, safeDiagramSource, sanitizeFormula} from './renderer.js';
 import {loadVendor} from './vendor-loader.js';
@@ -616,7 +617,7 @@ function renderFiles() {
     button.append(icon,name);
     button.addEventListener('click', () => {
       showDocument(doc);
-      document.body.classList.remove('sidebar-mobile-open');
+      navigation.documentSelected();
     });
     (doc.demo ? $('demo-files') : $('user-files')).append(button);
   }
@@ -730,7 +731,7 @@ function buildTOC() {
     link.addEventListener('click', e => {
       e.preventDefault();
       heading.scrollIntoView({block:'start'});
-      document.body.classList.remove('toc-open');
+      navigation.headingSelected(heading);
       requestAnimationFrame(updateProgress);
     });
     $('toc-links').append(link);
@@ -894,6 +895,7 @@ function showDocument(doc, {preserveScroll = false, anchor = '',record = true,re
     rendered = {images:[],diagrams:[]};
   }
   if (rendered.html !== undefined) $('document').innerHTML = rendered.html;
+  labelReadingContent($('document'));
   currentImages = rendered.images;
   $('current-file').textContent = doc.name;
   $('doc-origin').textContent = doc.demo ? '墨閱使用指南' : doc.pasted ? '貼上的文件' : '本機文件';
@@ -931,7 +933,7 @@ function jumpToAnchor(anchor) {
   let id;
   try { id = decodeURIComponent(anchor.replace(/^#/,'')); } catch { return; }
   const heading = document.getElementById(id);
-  if (heading && $('document').contains(heading)) heading.scrollIntoView({block:'start'});
+  if (heading && $('document').contains(heading)) { heading.scrollIntoView({block:'start'}); navigation.headingSelected(heading); }
   else toast('此文件找不到對應的章節。');
 }
 
@@ -1002,7 +1004,7 @@ async function importFiles(fileEntries) {
     $('file-search').value = '';
     showDocument(added[0]);
     toast(`已開啟 ${added.length} 份文件${assetCount ? `，載入 ${assetCount} 張圖片` : ''}${failures ? `；${failures} 份檔案無法讀取` : ''}${skipped ? `；${skipped} 份超過容量或數量限制已略過` : ''}。`);
-    document.body.classList.remove('sidebar-mobile-open');
+    navigation.documentSelected();
   } else if (assetCount) {
     renderFiles();
     renderImages(currentImages);
@@ -1118,12 +1120,12 @@ $('paste-submit').addEventListener('click', () => {
   $('paste-dialog').close();
   $('file-search').value = '';
   showDocument(doc);
-  document.body.classList.remove('sidebar-mobile-open');
+  navigation.documentSelected();
   void flushLibrary();
 });
 $('help-button').addEventListener('click', () => $('help-dialog').showModal());
 for (const dialog of document.querySelectorAll('dialog')) dialog.addEventListener('click', e => { if (e.target === dialog && !(dialog.id==='restore-dialog' && restoreCommitting) && !(dialog.id==='manage-dialog' && managementBusy)) { const r = dialog.getBoundingClientRect(); if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) dialog.close(); } });
-$('brand-home').addEventListener('click', e => { e.preventDefault(); $('file-search').value = ''; showDocument(demoDocs[0]); });
+$('brand-home').addEventListener('click', e => { e.preventDefault(); $('file-search').value = ''; showDocument(demoDocs[0]); navigation.documentSelected(); });
 $('theme-toggle').addEventListener('click', () => setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'));
 $('font-minus').addEventListener('click', () => setFont(fontSize - 1, true));
 $('font-plus').addEventListener('click', () => setFont(fontSize + 1, true));
@@ -1137,24 +1139,7 @@ $('print-button').addEventListener('click', async () => {
   $('print-button').disabled = false;
   window.print();
 });
-$('sidebar-toggle').addEventListener('click', () => {
-  const mobile = matchMedia('(max-width:720px)').matches;
-  if (mobile) document.body.classList.toggle('sidebar-mobile-open');
-  else document.body.classList.toggle('sidebar-collapsed');
-  $('sidebar-toggle').setAttribute('aria-expanded',String(mobile ? document.body.classList.contains('sidebar-mobile-open') : !document.body.classList.contains('sidebar-collapsed')));
-  requestAnimationFrame(updateTables);
-});
-$('toc-toggle').addEventListener('click', () => {
-  const narrow = matchMedia('(max-width:1000px)').matches;
-  if (narrow) document.body.classList.toggle('toc-open');
-  else document.body.classList.toggle('toc-hidden');
-  $('toc-toggle').setAttribute('aria-expanded',String(narrow ? document.body.classList.contains('toc-open') : !document.body.classList.contains('toc-hidden')));
-  requestAnimationFrame(updateTables);
-});
-document.addEventListener('click', e => {
-  if (document.body.classList.contains('sidebar-mobile-open') && !$('sidebar').contains(e.target) && !$('sidebar-toggle').contains(e.target)) document.body.classList.remove('sidebar-mobile-open');
-  if (document.body.classList.contains('toc-open') && !$('toc').contains(e.target) && !$('toc-toggle').contains(e.target)) document.body.classList.remove('toc-open');
-});
+const navigation=setupAccessibleNavigation({onLayout:updateTables,openFile:()=>$('file-input').click(),preference});
 $('back-top').addEventListener('click', () => window.scrollTo({top:0}));
 $('document').addEventListener('click', async e => {
   const copy = e.target.closest('.copy-code');
@@ -1176,15 +1161,8 @@ $('document').addEventListener('click', async e => {
   if (href.startsWith('//')) { window.open(`https:${href}`,'_blank','noopener,noreferrer'); return; }
   const path = resolveDocumentPath(current,href);
   const doc = path && documents.get(path);
-  if (doc) showDocument(doc,{anchor:href.includes('#') ? href.slice(href.indexOf('#')) : ''});
+  if (doc) { showDocument(doc,{anchor:href.includes('#') ? href.slice(href.indexOf('#')) : ''}); navigation.documentSelected(); }
   else toast('找不到連結的文件，請匯入包含相關文件的共同上層資料夾。');
-});
-document.addEventListener('keydown', e => {
-  const editable = e.target.closest('input,textarea,[contenteditable=true]');
-  if (e.key === 'Escape') { document.body.classList.remove('sidebar-mobile-open','toc-open'); return; }
-  if (editable || document.querySelector('dialog[open]') || e.ctrlKey || e.metaKey || e.altKey) return;
-  if (e.key.toLowerCase() === 'o') { e.preventDefault(); $('file-input').click(); }
-  if (e.key === '/') { e.preventDefault(); if (matchMedia('(max-width:720px)').matches) document.body.classList.add('sidebar-mobile-open'); else document.body.classList.remove('sidebar-collapsed'); $('file-search').focus(); }
 });
 document.addEventListener('paste', e => {
   if (e.target.closest('input,textarea,[contenteditable=true]') || document.querySelector('dialog[open]')) return;
