@@ -26,7 +26,7 @@ try {
  await keyFocus('.code-block pre');await p.keyboard.press('End');await p.keyboard.press('ArrowRight');await p.waitForFunction(()=>document.querySelector('.code-block pre').scrollLeft>0);
  pass('Skip link, read-only task names, live font size and keyboard code scrolling are accessible');
 
- await p.setViewportSize({width:320,height:640});await p.waitForTimeout(200);assert.equal(await p.locator('#sidebar-toggle').getAttribute('aria-expanded'),'false');assert.equal(await p.locator('#toc-toggle').getAttribute('aria-expanded'),'false');
+ await p.setViewportSize({width:320,height:640});await p.waitForFunction(()=>matchMedia('(max-width:720px)').matches && document.getElementById('sidebar-toggle').getAttribute('aria-expanded')==='false' && document.getElementById('toc-toggle').getAttribute('aria-expanded')==='false');assert.equal(await p.locator('#sidebar-toggle').getAttribute('aria-expanded'),'false');assert.equal(await p.locator('#toc-toggle').getAttribute('aria-expanded'),'false');
  await side();assert.equal(await id(),'sidebar-close');assert.equal(await p.locator('.workspace').evaluate(e=>e.inert),true);
  await p.keyboard.press('Shift+Tab');assert.equal(await id(),'support-button');await p.keyboard.press('Tab');assert.equal(await id(),'sidebar-close');
  for(let i=0;i<25;i++){await p.keyboard.press('Tab');assert.equal(await p.locator('#sidebar').evaluate(e=>e.contains(document.activeElement)),true);}
@@ -80,5 +80,5 @@ try {
  await p.emulateMedia({forcedColors:'active'});await side();await p.keyboard.press('Tab');assert.match(await p.locator(':focus').evaluate(e=>getComputedStyle(e).outlineStyle),/solid/);await p.keyboard.press('Escape');
  pass('Light/dark code and muted text meet 4.5:1, 320px UI reflows and forced-color focus stays visible');
  assert.deepEqual(errors,[]);await writeFile(path.join(out,'results.json'),JSON.stringify({browser:browserName,results,errors},null,2));
-}catch(error){await p.screenshot({path:path.join(out,'failure.png')}).catch(()=>{});await writeFile(path.join(out,'failure.json'),JSON.stringify({message:error.message,results,focus:await id().catch(()=>null)},null,2));throw error;}
+}catch(error){await p.screenshot({path:path.join(out,'failure.png')}).catch(()=>{});await writeFile(path.join(out,'failure.json'),JSON.stringify({message:error.message,results,focus:await id().catch(()=>null),viewport:await p.evaluate(()=>({width:innerWidth,height:innerHeight,mobile:matchMedia('(max-width:720px)').matches,sidebar:document.getElementById('sidebar-toggle').getAttribute('aria-expanded'),toc:document.getElementById('toc-toggle').getAttribute('aria-expanded')})).catch(()=>null)},null,2));throw error;}
 finally{await context.close();await server.close();}

@@ -62,7 +62,7 @@
     {
       "path": "tests/accessibility.mjs",
       "before": null,
-      "after": "76410c0a8b7a8049ca3eda87f2e07e1d8925f48a"
+      "after": "1a4802c03f90e56d225811fa30ab9825997ed616"
     },
     {
       "path": "tests/test-plan.mjs",
