@@ -2,11 +2,13 @@ import {execFileSync} from 'node:child_process';
 import {appendFileSync, readFileSync, writeFileSync} from 'node:fs';
 import {pathToFileURL} from 'node:url';
 
-export const allSuites = ['verify', 'audit', 'lazy-features', 'offline-cache', 'library', 'backup', 'merge', 'font-progress', 'reading-controls', 'media-switch', 'multitab-progress', 'checkpoint-storage', 'tab-selection', 'same-document-progress', 'product-library', 'product-conflict'];
-export const compatibleSuites = ['backup', 'merge', 'font-progress', 'reading-controls', 'media-switch', 'multitab-progress', 'checkpoint-storage', 'tab-selection', 'same-document-progress', 'product-library', 'product-conflict'];
+export const allSuites = ['verify', 'audit', 'lazy-features', 'offline-cache', 'library', 'backup', 'merge', 'font-progress', 'reading-controls', 'media-switch', 'multitab-progress', 'checkpoint-storage', 'tab-selection', 'same-document-progress', 'product-library', 'product-conflict', 'accessibility'];
+export const compatibleSuites = ['backup', 'merge', 'font-progress', 'reading-controls', 'media-switch', 'multitab-progress', 'checkpoint-storage', 'tab-selection', 'same-document-progress', 'product-library', 'product-conflict', 'accessibility'];
 const reading = ['font-progress', 'reading-controls', 'media-switch', 'multitab-progress', 'tab-selection', 'same-document-progress'];
 const storage = ['library', 'backup', 'merge', 'checkpoint-storage', 'multitab-progress', 'tab-selection', 'same-document-progress', 'product-library', 'product-conflict'];
 const rules = {
+  'src/accessibility.js': ['accessibility'],
+  'src/accessibility.css': ['accessibility'],
   'src/app.js': allSuites,
   'src/library-store.js': storage,
   'src/library-management.js': ['backup','merge','tab-selection','same-document-progress','product-library','product-conflict'],
@@ -52,6 +54,24 @@ export function selectTests(paths, full = false) {
   return {ci, audit, chromium, compatible, browsers: chromium.length ? (compatible.length ? ['chromium', 'firefox', 'webkit'] : ['chromium']) : [], reasons};
 }
 
+// This reviewed release scope is valid only for the exact complete change set.
+// Any extra path, changed blob or later base falls back to normal dependency rules.
+export function reviewedAccessibilityImpact(paths,{base,sha,readGit}) {
+  const profilePath='tests/accessibility-impact.json';
+  if(!paths.includes(profilePath))return null;
+  try {
+    const profile=JSON.parse(readGit('show',`${sha}:${profilePath}`));
+    if(profile.version!==1 || profile.base!==base || !Array.isArray(profile.files) || profile.suite!=='accessibility')return null;
+    const expected=paths.filter(p=>p!==profilePath),files=new Map(profile.files.map(f=>[f.path,f]));
+    if(files.size!==profile.files.length || files.size!==expected.length || !['src/app.js','src/index.html','src/accessibility.js','src/accessibility.css','tests/accessibility.mjs'].every(p=>files.has(p)))return null;
+    const blob=(commit,path)=>{try{return readGit('rev-parse',`${commit}:${path}`);}catch{return null;}};
+    for(const path of expected){
+      const f=files.get(path);if(!f || !/^[a-f0-9]{40}$/.test(f.after) || f.before!==null && !/^[a-f0-9]{40}$/.test(f.before) || blob(base,path)!==f.before || blob(sha,path)!==f.after)return null;
+    }
+    return {suite:'accessibility',reason:'Reviewed navigation, labels, contrast and reflow scope; every changed Git blob and the baseline are bound to tests/accessibility-impact.json'};
+  }catch{return null;}
+}
+
 // Reuse only a successful PR run for precisely this source and pre-merge base.
 export function canReuse({pr, run, repository, sha, tree, beforeTree, headTree, baseTree}) {
   return Boolean(pr.merged_at && pr.merge_commit_sha === sha && pr.base.ref === 'main' &&
@@ -71,6 +91,10 @@ export async function createPlan(env = process.env, request = fetch, readGit = g
   const validBase = /^[0-9a-f]{40}$/.test(base) && !/^0+$/.test(base);
   const paths = validBase ? readGit('diff', '--name-only', '-z', '--no-renames', base, sha).split('\0').filter(Boolean) : ['unknown-change'];
   const plan = {...selectTests(paths, full), sha, tree, base, reuse: false};
+  const reviewed=!full && validBase && reviewedAccessibilityImpact(paths,{base,sha,readGit});
+  if(reviewed){
+    Object.assign(plan,selectTests([`tests/${reviewed.suite}.mjs`]),{ci:true,audit:false,reviewedScope:reviewed.reason,reasons:paths.map(path=>({path,suites:[reviewed.suite],reason:reviewed.reason}))});
+  }
   const api = async path => {
     const response = await request(`https://api.github.com/repos/${env.GITHUB_REPOSITORY}/${path}`, {
       headers: {Authorization: `Bearer ${env.GITHUB_TOKEN}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28'},

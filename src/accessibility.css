@@ -1,0 +1,36 @@
+/* Accessibility fixes are separate from the reader's typography and storage. */
+:root{--muted:#5c685e;--control-border:#7a887e}
+:root[data-theme=dark]{--muted:#a1b0a4;--control-border:#819587}
+.toc-tip{color:var(--muted)}
+.modal p a{text-decoration:underline;text-underline-offset:3px}
+.text-input,.modal textarea,.library-tools select,.file-search{border-color:var(--control-border)}
+button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,summary:focus-visible,[tabindex]:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
+.file-search:focus-within{outline:3px solid var(--accent);outline-offset:3px}
+.table-scroll:focus-visible,.code-block pre:focus-visible{outline-offset:-3px}
+.markdown-body :is(h1,h2,h3,h4,h5,h6){scroll-margin-top:85px}
+.markdown-body .hljs-comment,.markdown-body .hljs-quote{color:#56694f}
+.markdown-body .hljs-keyword,.markdown-body .hljs-selector-tag,.markdown-body .hljs-literal{color:#795483}
+.markdown-body .hljs-string,.markdown-body .hljs-regexp,.markdown-body .hljs-template-tag,.markdown-body .hljs-tag{color:#276b4c}
+.markdown-body .hljs-title,.markdown-body .hljs-title.function_,.markdown-body .hljs-attr,.markdown-body .hljs-built_in{color:#3e6489}
+.markdown-body .hljs-number,.markdown-body .hljs-symbol,.markdown-body .hljs-bullet,.markdown-body .hljs-variable,.markdown-body .hljs-template-variable{color:#855b26}
+.markdown-body .hljs-meta{color:#526f60}
+:root[data-theme=dark] .markdown-body :is(.hljs-comment,.hljs-quote,.hljs-meta){color:#a6b99e}
+:root[data-theme=dark] .markdown-body :is(.hljs-keyword,.hljs-selector-tag,.hljs-literal){color:#cfacd8}
+:root[data-theme=dark] .markdown-body :is(.hljs-string,.hljs-regexp,.hljs-template-tag,.hljs-tag){color:#98c490}
+:root[data-theme=dark] .markdown-body :is(.hljs-title,.hljs-title.function_,.hljs-attr,.hljs-built_in){color:#93b9da}
+:root[data-theme=dark] .markdown-body :is(.hljs-number,.hljs-symbol,.hljs-bullet,.hljs-variable,.hljs-template-variable){color:#d8b17f}
+.danger-button,#manage-error,#library-error-detail{color:#a2372e}
+:root[data-theme=dark] :is(.danger-button,#manage-error,#library-error-detail){color:#f6a99f}
+.tiny-button{min-width:24px;min-height:24px}
+.import-actions button,.copy-code,.document-footer>button,.demo-section>summary{min-height:24px}
+.font-controls .icon-button{min-width:24px}
+.shortcuts-option{display:flex!important;align-items:center;gap:10px;min-height:44px}
+.shortcuts-option input{width:18px;height:18px;flex-shrink:0}
+.panel-close{display:none}
+.font-controls output{font-size:14px;color:var(--secondary);min-width:24px;text-align:center;font-variant-numeric:tabular-nums}
+@media screen and (max-width:1000px){.toc-open #toc-close{display:inline-flex;float:right;margin-top:-8px}.toc-open .toc{max-height:calc(100dvh - 145px)}}
+@media screen and (max-width:720px){.sidebar #sidebar-close{display:inline-flex;position:absolute;right:8px;top:8px;background:var(--surface)}.sidebar .brand{padding-top:20px}.reading-toolbar{height:auto;min-height:53px;flex-wrap:wrap;padding-top:6px;padding-bottom:6px}.reading-controls .icon-button{min-width:32px}.sidebar{height:100dvh}.modal-footer{flex-wrap:wrap}.toc-open .toc{top:85px;max-height:calc(100dvh - 105px)}}
+@media(forced-colors:active){button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible,[tabindex]:focus-visible{outline:3px solid Highlight}.file-search:focus-within{outline-color:Highlight}.text-input,.modal textarea,.library-tools select{border:1px solid ButtonText}.primary-button,.danger-button{border:1px solid ButtonText}}
+/* A nonzero duration on * creates transitions even on previously static text.
+   Disable them so reading-position measurements see the final font geometry. */
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
