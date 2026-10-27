@@ -27,7 +27,7 @@ try {
  pass('Skip link, read-only task names, live font size and keyboard code scrolling are accessible');
 
  await p.setViewportSize({width:320,height:640});await p.waitForFunction(()=>matchMedia('(max-width:720px)').matches && document.getElementById('sidebar-toggle').getAttribute('aria-expanded')==='false' && document.getElementById('toc-toggle').getAttribute('aria-expanded')==='false');assert.equal(await p.locator('#sidebar-toggle').getAttribute('aria-expanded'),'false');assert.equal(await p.locator('#toc-toggle').getAttribute('aria-expanded'),'false');
- await side();assert.equal(await id(),'sidebar-close');assert.equal(await p.locator('.workspace').evaluate(e=>e.inert),true);
+ await side();assert.equal(await id(),'sidebar-close');assert.equal(await p.locator('.workspace').evaluate(e=>e.inert),true);assert.equal(await p.locator('.skip-link').evaluate(e=>e.inert),true);
  await p.keyboard.press('Shift+Tab');assert.equal(await id(),'support-button');await p.keyboard.press('Tab');assert.equal(await id(),'sidebar-close');
  for(let i=0;i<25;i++){await p.keyboard.press('Tab');assert.equal(await p.locator('#sidebar').evaluate(e=>e.contains(document.activeElement)),true);}
  await p.keyboard.press('Escape');await expectFocus('sidebar-toggle');assert.equal(await p.locator('#sidebar-toggle').getAttribute('aria-expanded'),'false');assert.equal(await p.locator('.workspace').evaluate(e=>e.inert),false);
@@ -50,7 +50,7 @@ try {
  pass('Narrow-screen chapter navigation returns focus or focuses the selected heading without hiding it under the toolbar');
 +
 + await side();const downloadEvent=p.waitForEvent('download');await p.locator('#backup-library').click();const download=await downloadEvent,archive=path.join(profile,'accessibility.inkread');await download.saveAs(archive);
-+ await p.locator('#backup-input').setInputFiles(archive);await p.locator('#restore-dialog[open]').waitFor();await expectFocus('restore-title');await p.keyboard.press('Escape');await expectFocus('sidebar-toggle');
++ await p.locator('#backup-input').setInputFiles(archive);await p.locator('#restore-dialog[open]').waitFor();assert.equal(await p.getByRole('group',{name:'同名文件與圖片的版本選擇',exact:true}).count(),1);await expectFocus('restore-title');await p.keyboard.press('Escape');await expectFocus('sidebar-toggle');
 + await side();await p.locator('#support-button').click();await p.locator('#support-dialog[open]').waitFor();await expectFocus('support-title');await p.keyboard.press('Escape');await expectFocus('sidebar-toggle');
 + await side();await p.locator('#paste-button').click();await p.locator('#paste-dialog[open]').waitFor();await expectFocus('paste-content');await p.keyboard.press('Escape');await expectFocus('sidebar-toggle');
 + await side();await p.locator('#clear-files').click();await p.locator('#confirm-dialog[open]').waitFor();await expectFocus('confirm-cancel');await p.keyboard.press('Escape');await expectFocus('sidebar-toggle');assert.equal(await p.locator('#user-files button').count(),1);

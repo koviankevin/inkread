@@ -24,6 +24,7 @@ export function setupAccessibleNavigation({onLayout,openFile,preference}) {
     $('sidebar-toggle').setAttribute('aria-expanded',String(mobile.matches ? sideOpen() : !body.classList.contains('sidebar-collapsed')));
     $('toc-toggle').setAttribute('aria-expanded',String(narrow.matches ? tocOpen() : !body.classList.contains('toc-hidden')));
     workspace.inert=sideOpen();
+    document.querySelector('.skip-link').inert=sideOpen();
     sidebar.inert=mobile.matches && !sideOpen();
     if(sideOpen()){sidebar.setAttribute('role','dialog');sidebar.setAttribute('aria-modal','true');}
     else {sidebar.setAttribute('role','complementary');sidebar.removeAttribute('aria-modal');}

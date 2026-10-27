@@ -42,7 +42,7 @@
     {
       "path": "src/accessibility.js",
       "before": null,
-      "after": "ed31fd5425b2358d248c3bb8e4bae7ba1240185c"
+      "after": "3249b29896010aa0172a4af3f6625f01bb46dae9"
     },
     {
       "path": "src/app.js",
@@ -52,7 +52,7 @@
     {
       "path": "src/index.html",
       "before": "5550fed07fe61dd708de6a29706e75e8c75b86fb",
-      "after": "a0c749b9a620ac459a774060c722404346ca4fd1"
+      "after": "f6f15bb3084d826bc135daf9d6afc75f5974e01e"
     },
     {
       "path": "tests/README.md",
@@ -62,7 +62,7 @@
     {
       "path": "tests/accessibility.mjs",
       "before": null,
-      "after": "1a4802c03f90e56d225811fa30ab9825997ed616"
+      "after": "6a9f94dc21a3d20312488fa0c9882155e2000e0f"
     },
     {
       "path": "tests/test-plan.mjs",
