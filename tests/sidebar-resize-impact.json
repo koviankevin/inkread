@@ -56,7 +56,7 @@
     {
       "path": "tests/sidebar-resize.mjs",
       "before": null,
-      "after": "84dfa9e43c28740ed6b46f47c39a39eec1a406f8"
+      "after": "e2c89a62f4a8514ca40522c8e6c1e096974aac16"
     },
     {
       "path": "tests/test-plan.mjs",

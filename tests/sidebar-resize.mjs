@@ -65,7 +65,11 @@ try {
   const box=await handle.boundingBox();assert.equal(Math.round(box.x+box.width),480);
   await drag(p,330);await same(p,points.original);
   pass('Mobile keeps its 250px drawer; desktop collapse and reopening retain a usable divider');
-  const cancel=await handle.boundingBox();await p.mouse.move(cancel.x+20,350);await p.mouse.down();await p.mouse.move(380,350,{steps:4});await p.evaluate(()=>{const h=document.getElementById('sidebar-resize');h.dispatchEvent(new PointerEvent('pointercancel',{pointerId:1}));});await p.mouse.up();await stable(p);
+  await handle.evaluate(h=>h.addEventListener('pointerdown',e=>{h.dataset.testPointerId=String(e.pointerId);},{once:true}));
+  const cancel=await handle.boundingBox();await p.mouse.move(cancel.x+20,350);await p.mouse.down();await p.mouse.move(380,350,{steps:4});
+  await handle.evaluate(h=>h.dispatchEvent(new PointerEvent('pointercancel',{pointerId:Number(h.dataset.testPointerId)})));
+  assert.equal(await p.locator('body').evaluate(el=>el.classList.contains('sidebar-resizing')),false,'Cancellation itself must release drag state before mouseup');
+  await p.mouse.up();await stable(p);
   assert.equal(await p.locator('body').evaluate(el=>el.classList.contains('sidebar-resizing')),false);await same(p,points.original);
   await key(p,'ArrowLeft');await same(p,points.original);await p.screenshot({path:path.join(output,'desktop.png')});
   const persisted=await width(p);await p.reload();await same(p,points.original);assert.equal(await width(p),persisted);
