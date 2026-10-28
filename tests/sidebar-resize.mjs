@@ -61,7 +61,8 @@ try {
   pass('Drag and viewport bounds reserve reading space and restore the preferred width');
   await size(p,390);await same(p,points.original);assert.equal(await handle.isVisible(),false);await toggle(p);assert.equal(await width(p),250);assert.equal(await handle.isVisible(),false);await p.locator('#sidebar-close').click();await same(p,points.original);
   await size(p,1100);assert.equal(await width(p),480);await same(p,points.original);
-  await toggle(p);assert.equal(await p.locator('#sidebar').isVisible(),false);await toggle(p);assert.equal(await width(p),480);
+  await toggle(p);assert.equal(await p.locator('#sidebar').isVisible(),false);await same(p,points.original);
+  await toggle(p);assert.equal(await width(p),480);await same(p,points.original);
   const box=await handle.boundingBox();assert.equal(Math.round(box.x+box.width),480);
   await drag(p,330);await same(p,points.original);
   pass('Mobile keeps its 250px drawer; desktop collapse and reopening retain a usable divider');

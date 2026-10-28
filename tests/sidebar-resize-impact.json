@@ -36,7 +36,7 @@
     {
       "path": "src/app.js",
       "before": "cfb5c087359a0b5842425283fa53201ea8a83d95",
-      "after": "ea07f4b1f753fd5faedda5d8216b2b0d30bf5188"
+      "after": "7bc7609dce3512f31d84a1e5956a8bc8143c400b"
     },
     {
       "path": "src/index.html",
@@ -56,7 +56,7 @@
     {
       "path": "tests/sidebar-resize.mjs",
       "before": null,
-      "after": "f6a30d583d2ba7a926ed1d69c24e19fe34b196b3"
+      "after": "126ee98dea978a1fc93adccf17a850487d67bc4f"
     },
     {
       "path": "tests/test-plan.mjs",
@@ -66,7 +66,7 @@
     {
       "path": "\u4ea4\u63a5\u6587\u4ef6.md",
       "before": "aecda8512a56a7a25161970929545b30c76d296f",
-      "after": "65ce18a2b226360ed1bb358fef1cf9d5d8d1930b"
+      "after": "77c88910127238d476a13e55ebc9a6b24701e457"
     }
   ]
 }

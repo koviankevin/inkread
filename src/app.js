@@ -45,7 +45,7 @@ let featureObservers = [];
 let renderAllFeatures = () => Promise.resolve();
 let activeHeadings = [];
 let headingPositions = [];
-let readingBlocks = [], blockPositions = [], layoutWidth = 0, layoutHeight = 0, layoutTop = 0, layoutArticleHeight = 0;
+let readingBlocks = [], blockPositions = [], layoutWidth = 0, layoutHeight = 0, layoutTop = 0, layoutArticleHeight = 0, layoutArticleWidth = 0;
 let restoredBlock;
 let tocLinks = [];
 let activeHeadingIndex = -1;
@@ -756,7 +756,8 @@ function updateProgress(restoreLayout=false) {
   const article = $('document');
   const top = window.scrollY + article.getBoundingClientRect().top;
   const articleHeight=article.offsetHeight;
-  const changed=restoreLayout===true || layoutWidth!==innerWidth || layoutHeight!==innerHeight;
+  const articleWidth=article.offsetWidth;
+  const changed=restoreLayout===true || layoutWidth!==innerWidth || layoutHeight!==innerHeight || layoutArticleWidth!==articleWidth;
   const saved=changed && !resumeTask && displayedDocument===current && readingPositions.get(current.path);
   if(changed || Math.abs(top-layoutTop)>.5 || articleHeight!==layoutArticleHeight) measureHeadings=true;
   if (measureHeadings) {
@@ -766,6 +767,7 @@ function updateProgress(restoreLayout=false) {
     layoutWidth=innerWidth; layoutHeight=innerHeight;
     layoutTop=top;
     layoutArticleHeight=articleHeight;
+    layoutArticleWidth=articleWidth;
     measureHeadings = false;
   }
   if(saved && saved.revision===current.revision && saved.block && readingBlocks[saved.block.index]) {
