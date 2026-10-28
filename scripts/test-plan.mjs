@@ -2,11 +2,12 @@ import {execFileSync} from 'node:child_process';
 import {appendFileSync, readFileSync, writeFileSync} from 'node:fs';
 import {pathToFileURL} from 'node:url';
 
-export const allSuites = ['verify', 'audit', 'lazy-features', 'offline-cache', 'library', 'backup', 'merge', 'font-progress', 'reading-controls', 'media-switch', 'multitab-progress', 'checkpoint-storage', 'tab-selection', 'same-document-progress', 'product-library', 'product-conflict', 'accessibility'];
+export const allSuites = ['verify', 'audit', 'lazy-features', 'offline-cache', 'library', 'backup', 'merge', 'font-progress', 'reading-controls', 'media-switch', 'multitab-progress', 'checkpoint-storage', 'tab-selection', 'same-document-progress', 'product-library', 'product-conflict', 'accessibility', 'drop-import'];
 export const compatibleSuites = ['backup', 'merge', 'font-progress', 'reading-controls', 'media-switch', 'multitab-progress', 'checkpoint-storage', 'tab-selection', 'same-document-progress', 'product-library', 'product-conflict', 'accessibility'];
 const reading = ['font-progress', 'reading-controls', 'media-switch', 'multitab-progress', 'tab-selection', 'same-document-progress'];
 const storage = ['library', 'backup', 'merge', 'checkpoint-storage', 'multitab-progress', 'tab-selection', 'same-document-progress', 'product-library', 'product-conflict'];
 const rules = {
+  'src/drop-import.js': ['drop-import'],
   'src/accessibility.js': ['accessibility'],
   'src/accessibility.css': ['accessibility'],
   'src/app.js': allSuites,
@@ -56,19 +57,23 @@ export function selectTests(paths, full = false) {
 
 // This reviewed release scope is valid only for the exact complete change set.
 // Any extra path, changed blob or later base falls back to normal dependency rules.
-export function reviewedAccessibilityImpact(paths,{base,sha,readGit}) {
-  const profilePath='tests/accessibility-impact.json';
-  if(!paths.includes(profilePath))return null;
+export function reviewedImpact(paths,{base,sha,readGit}) {
+  const candidates=[
+    {path:'tests/accessibility-impact.json',suite:'accessibility',sources:['src/app.js','src/index.html','src/accessibility.js','src/accessibility.css','tests/accessibility.mjs']},
+    {path:'tests/drop-import-impact.json',suite:'drop-import',sources:['src/app.js','src/drop-import.js','tests/drop-import.mjs']},
+  ].filter(scope=>paths.includes(scope.path));
+  if(candidates.length!==1)return null;
+  const scope=candidates[0],profilePath=scope.path;
   try {
     const profile=JSON.parse(readGit('show',`${sha}:${profilePath}`));
-    if(profile.version!==1 || profile.base!==base || !Array.isArray(profile.files) || profile.suite!=='accessibility')return null;
+    if(profile.version!==1 || profile.base!==base || !Array.isArray(profile.files) || profile.suite!==scope.suite)return null;
     const expected=paths.filter(p=>p!==profilePath),files=new Map(profile.files.map(f=>[f.path,f]));
-    if(files.size!==profile.files.length || files.size!==expected.length || !['src/app.js','src/index.html','src/accessibility.js','src/accessibility.css','tests/accessibility.mjs'].every(p=>files.has(p)))return null;
+    if(files.size!==profile.files.length || files.size!==expected.length || !scope.sources.every(p=>files.has(p)))return null;
     const blob=(commit,path)=>{try{return readGit('rev-parse',`${commit}:${path}`);}catch{return null;}};
     for(const path of expected){
       const f=files.get(path);if(!f || !/^[a-f0-9]{40}$/.test(f.after) || f.before!==null && !/^[a-f0-9]{40}$/.test(f.before) || blob(base,path)!==f.before || blob(sha,path)!==f.after)return null;
     }
-    return {suite:'accessibility',reason:'Reviewed navigation, labels, contrast and reflow scope; every changed Git blob and the baseline are bound to tests/accessibility-impact.json'};
+    return {suite:scope.suite,reason:`Reviewed ${scope.suite} scope; every changed Git blob and the baseline are bound to ${profilePath}`};
   }catch{return null;}
 }
 
@@ -91,7 +96,7 @@ export async function createPlan(env = process.env, request = fetch, readGit = g
   const validBase = /^[0-9a-f]{40}$/.test(base) && !/^0+$/.test(base);
   const paths = validBase ? readGit('diff', '--name-only', '-z', '--no-renames', base, sha).split('\0').filter(Boolean) : ['unknown-change'];
   const plan = {...selectTests(paths, full), sha, tree, base, reuse: false};
-  const reviewed=!full && validBase && reviewedAccessibilityImpact(paths,{base,sha,readGit});
+  const reviewed=!full && validBase && reviewedImpact(paths,{base,sha,readGit});
   if(reviewed){
     Object.assign(plan,selectTests([`tests/${reviewed.suite}.mjs`]),{ci:true,audit:false,reviewedScope:reviewed.reason,reasons:paths.map(path=>({path,suites:[reviewed.suite],reason:reviewed.reason}))});
   }

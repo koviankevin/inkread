@@ -14,6 +14,8 @@
 
 ## 合併後沿用
 
+1.8.2 的拖拉讀取修正拆到 `src/drop-import.js`，以 `tests/drop-import-impact.json` 綁定相同的完整路徑、前後blob與固定基準證據，只跑 Chrome 匯入回歸及選測契約；不重跑儲存、備份、圖表公式或無障礙整套。兩種範圍紀錄不能混用；任一不吻合均回到一般相依規則。
+
 PR 明確 checkout head SHA。main 僅沿用同一儲存庫、同一工作流程、已合併至該 main commit 的 PR 成功 run；PR head 與 main 的完整 Git tree 必須相同，PR base tree 也必須等於合併前的 main tree。版本號相同不足以沿用。API 無法確認、測試失敗、取消、內容或基準不同時，重新執行受影響範圍。
 
 沿用的只是驗證結果；正式分支仍從自己的固定 SHA 建置、打包並上傳本次 Pages 產物，不下載 PR 產物、不執行 PR 傳來的程式。需要的測試未成功時部署關卡保持關閉。手動 `full` 會明確重測全套。
