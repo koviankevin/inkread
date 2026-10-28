@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "base": "7811e894275b3f75f9c08f2fec5728a30576c55b",
+  "suite": "drop-import",
+  "files": [
+    {
+      "path": "README.md",
+      "before": "f2def3037be356477ca2a32586264ac7d7745750",
+      "after": "00383e510facc712ad530a9708be0804b61488a7"
+    },
+    {
+      "path": "TESTING.md",
+      "before": "25930e59b4745de3786b58b55b2d3a554ea8e06b",
+      "after": "5a1ceb2c23d02529e4672e9198ed24db784d1f14"
+    },
+    {
+      "path": "package-lock.json",
+      "before": "97334a1728245842d81b3fa7753895acc837a466",
+      "after": "6d6a7164f4b0251c1dcc09685a0e4ae5ed01492c"
+    },
+    {
+      "path": "package.json",
+      "before": "1551254e7cfa184072dc6791c44c4f64e85302cf",
+      "after": "3fce02bdcdcf8fd2079be045a4be64476e76dbf2"
+    },
+    {
+      "path": "scripts/test-plan.mjs",
+      "before": "2f140279a189940ca6194c3e70505b5056999e34",
+      "after": "be5d4443110dfa53ac5fe69f8a3342115980d53d"
+    },
+    {
+      "path": "src/app.js",
+      "before": "cd6b6a23d73fef1efd93f043f90bf558f9544798",
+      "after": "cfb5c087359a0b5842425283fa53201ea8a83d95"
+    },
+    {
+      "path": "src/drop-import.js",
+      "before": null,
+      "after": "536d52c65f76c891bc519b81d80826a8387b1473"
+    },
+    {
+      "path": "src/index.html",
+      "before": "f6f15bb3084d826bc135daf9d6afc75f5974e01e",
+      "after": "aa818df01ea36ebc285f7305819073b954e6e4e7"
+    },
+    {
+      "path": "tests/README.md",
+      "before": "9e91b13c930b4995d2745738502cfe2dc764c902",
+      "after": "f31cc787cfb87110592a054562fc775883e2ab6b"
+    },
+    {
+      "path": "tests/drop-import.mjs",
+      "before": null,
+      "after": "8091244fc9574370f7a42a7b9cedf65c36886db9"
+    },
+    {
+      "path": "tests/test-plan.mjs",
+      "before": "d1e07804df089821c56a3f810380548864942014",
+      "after": "92633ab0342a03105b71b479c22704dc40e4a225"
+    },
+    {
+      "path": "\u4ea4\u63a5\u6587\u4ef6.md",
+      "before": "f6453f7d6528e68e762a7c6853c285238bfd5828",
+      "after": "aecda8512a56a7a25161970929545b30c76d296f"
+    }
+  ]
+}

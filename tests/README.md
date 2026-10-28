@@ -1,5 +1,15 @@
 # Browser acceptance
 
+## File and directory drops
+
+`drop-import.mjs` compares native Chromium drops with the file picker. It retains
+real filesystem-backed File objects while making the unnecessary Entry.file
+layer fail for plain-file drops. The native drop must still import, with zero
+Entry.file calls. Multi-file drops and a real nested directory verify that image
+paths are retained. Focused module cases cover event-time snapshots, missing
+entry APIs, multiple directory batches, entry-only fallback, read failures and
+the existing directory entry limit. This is not a new full offline/library run.
+
 ## Accessibility
 
 `accessibility.mjs` checks native keyboard navigation, mobile modal focus,

@@ -1,6 +1,7 @@
 import './style.css';
 import './library-ui.css';
 import {setupAccessibleNavigation,labelReadingContent} from './accessibility.js';
+import {readDroppedFiles} from './drop-import.js';
 import {createIcons, Plus, Search, X, FolderOpen, ShieldCheck, CircleHelp, PanelLeft, ChevronRight, Minus, Moon, Sun, Printer, List, FileText, FileUp, BookOpen, ArrowUp, Copy, Check, Sparkles, ImageOff, ArrowLeftRight, FileCode2, ChartNoAxesCombined} from 'lucide';
 import {renderMarkdown, sanitizeDiagram, safeDiagramSource, sanitizeFormula} from './renderer.js';
 import {loadVendor} from './vendor-loader.js';
@@ -1015,23 +1016,6 @@ async function importFiles(fileEntries) {
   } finally { importsInFlight--; }
 }
 
-async function readDirectoryEntry(entry, result, parent = '') {
-  const path = parent + entry.name;
-  if (entry.isFile) {
-    if (!isMarkdown(path) && !/\.(png|jpe?g|gif|webp|avif|svg|bmp|ico)$/i.test(path)) return;
-    if (result.length >= MAX_IMPORT_FILES) throw new Error('Too many files');
-    const file = await new Promise((resolve,reject) => entry.file(resolve,reject));
-    result.push({file,path});
-  } else if (entry.isDirectory) {
-    const reader = entry.createReader();
-    let batch;
-    do {
-      batch = await new Promise((resolve,reject) => reader.readEntries(resolve,reject));
-      for (const child of batch) await readDirectoryEntry(child,result,`${path}/`);
-    } while (batch.length);
-  }
-}
-
 function openPaste(content) {
   if (transferBusy || clearing) { toast('文件庫正在處理資料，請稍候。'); return; }
   if (typeof content === 'string') $('paste-content').value = content;
@@ -1178,15 +1162,8 @@ window.addEventListener('dragleave', e => { e.preventDefault(); dragDepth = Math
 window.addEventListener('drop', async e => {
   e.preventDefault(); dragDepth = 0; $('drop-overlay').hidden = true;
   if (!e.dataTransfer) return;
-  // Obtain entries synchronously before the drag event's data store is cleared.
-  const entries = [...e.dataTransfer.items].map(item => item.webkitGetAsEntry?.()).filter(Boolean);
-  const fallbackFiles = [...e.dataTransfer.files];
-  try {
-    const result = [];
-    if (entries.length) for (const entry of entries) await readDirectoryEntry(entry,result);
-    else result.push(...fallbackFiles);
-    await importFiles(result);
-  } catch { toast('資料夾無法完整讀取，請改用「匯入資料夾」。'); }
+  try { await importFiles(await readDroppedFiles(e.dataTransfer)); }
+  catch { toast('拖入的檔案或資料夾無法完整讀取，請改用「開啟文件」或「匯入資料夾」。'); }
 });
 window.addEventListener('scroll',scheduleProgress,{passive:true});
 const cancelResume=event=>{
