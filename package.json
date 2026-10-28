@@ -1,6 +1,6 @@
 {
   "name": "inkread-markdown-viewer",
-  "version": "1.8.2",
+  "version": "1.8.3",
   "license": "MIT",
   "engines": {
     "node": ">=22.12.0"
@@ -10,8 +10,8 @@
   "description": "墨閱 — 可離線使用的 Markdown 網頁檢視器",
   "scripts": {
     "build": "node scripts/build.mjs",
-    "test": "node tests/verify.mjs && node tests/audit.mjs && node tests/lazy-features.mjs && node tests/offline-cache.mjs && node tests/library.mjs && node tests/backup.mjs && node tests/merge.mjs && node tests/font-progress.mjs && node tests/reading-controls.mjs && node tests/media-switch.mjs && node tests/multitab-progress.mjs && node tests/checkpoint-storage.mjs && node tests/tab-selection.mjs && node tests/same-document-progress.mjs && node tests/product-library.mjs && node tests/product-conflict.mjs && node tests/accessibility.mjs && node tests/drop-import.mjs",
-    "test:compat": "node tests/backup.mjs && node tests/merge.mjs && node tests/font-progress.mjs && node tests/reading-controls.mjs && node tests/media-switch.mjs && node tests/multitab-progress.mjs && node tests/checkpoint-storage.mjs && node tests/tab-selection.mjs && node tests/same-document-progress.mjs && node tests/product-library.mjs && node tests/product-conflict.mjs && node tests/accessibility.mjs",
+    "test": "node tests/verify.mjs && node tests/audit.mjs && node tests/lazy-features.mjs && node tests/offline-cache.mjs && node tests/library.mjs && node tests/backup.mjs && node tests/merge.mjs && node tests/font-progress.mjs && node tests/reading-controls.mjs && node tests/media-switch.mjs && node tests/multitab-progress.mjs && node tests/checkpoint-storage.mjs && node tests/tab-selection.mjs && node tests/same-document-progress.mjs && node tests/product-library.mjs && node tests/product-conflict.mjs && node tests/accessibility.mjs && node tests/drop-import.mjs && node tests/sidebar-resize.mjs",
+    "test:compat": "node tests/backup.mjs && node tests/merge.mjs && node tests/font-progress.mjs && node tests/reading-controls.mjs && node tests/media-switch.mjs && node tests/multitab-progress.mjs && node tests/checkpoint-storage.mjs && node tests/tab-selection.mjs && node tests/same-document-progress.mjs && node tests/product-library.mjs && node tests/product-conflict.mjs && node tests/accessibility.mjs && node tests/sidebar-resize.mjs",
     "benchmark:startup": "node tests/startup.mjs",
     "dev": "python3 -m http.server 4173 --directory dist",
     "test:ci": "node --test tests/ci-contract.mjs"
