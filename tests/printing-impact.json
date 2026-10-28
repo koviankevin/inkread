@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "base": "933e4aef4b6cb0f2b20fe80a21e6425b9afbae64",
+  "suite": "printing",
+  "files": [
+    {
+      "path": "README.md",
+      "before": "3632e5dcb5f71f10444f032aa7c23d9c36904abe",
+      "after": "97826a75dcffa330b1b1c9e9e9f3c0c27b4d6aab"
+    },
+    {
+      "path": "TESTING.md",
+      "before": "69c55f06ea490d2b137eb92c349064409720a0cb",
+      "after": "dab874a633253fcf75bcff8c77f6f814eeb6bb7c"
+    },
+    {
+      "path": "package-lock.json",
+      "before": "f4a2efb6f1e448b8f5f69634975f042f9eb361b9",
+      "after": "476b36aa5f98d7421244f352eece0527c8cea477"
+    },
+    {
+      "path": "package.json",
+      "before": "a51f20623787fb72b7c696d247107773c2c8406d",
+      "after": "92b9cbfee3d53a1dbc22c9b5148e739d00e59f75"
+    },
+    {
+      "path": "scripts/test-plan.mjs",
+      "before": "f7c1f987f66bd7fd7188514364e875671ee4a4fa",
+      "after": "7a812549abc08d8bfa931f1e7c7619cc253fa617"
+    },
+    {
+      "path": "src/app.js",
+      "before": "7bc7609dce3512f31d84a1e5956a8bc8143c400b",
+      "after": "8000135011a02fc83b4dcd4bb67df49b9d0eee52"
+    },
+    {
+      "path": "src/index.html",
+      "before": "9b312a29ad8c43fb843efc963682a3af665155ce",
+      "after": "74108bfc17f0791cf834ed199c8639b75c19970a"
+    },
+    {
+      "path": "src/printing.js",
+      "before": null,
+      "after": "0c5d3df790296d6db09afc51d26668b7e6bd0f55"
+    },
+    {
+      "path": "tests/printing.mjs",
+      "before": null,
+      "after": "47072731647470a90e2e123b2c30078c6b45e47d"
+    },
+    {
+      "path": "tests/test-plan.mjs",
+      "before": "691cee6d85803bf90c6790c470722ee653804541",
+      "after": "f1363292c685fb21ce8bfb2a4f109b1832466873"
+    },
+    {
+      "path": "\u4ea4\u63a5\u6587\u4ef6.md",
+      "before": "77c88910127238d476a13e55ebc9a6b24701e457",
+      "after": "631e339ba3f62d2856081b1b8bcea69018eb6258"
+    }
+  ]
+}

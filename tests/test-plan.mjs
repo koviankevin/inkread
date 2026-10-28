@@ -60,6 +60,23 @@ test('reviewed sidebar scope is bound to every blob and selects all three engine
   assert.deepEqual(selectTests(['src/sidebar-resize.js','src/sidebar-resize.css']).chromium,['sidebar-resize']);
   assert.deepEqual(selectTests(['tests/sidebar-resize.mjs']).browsers,['chromium','firefox','webkit']);
 });
+test('reviewed printing scope rejects different blobs, bases and mixed profiles',()=>{
+  const base='a'.repeat(40),sha='b'.repeat(40),before='c'.repeat(40),after='d'.repeat(40);
+  const paths=['src/app.js','src/index.html','src/printing.js','tests/printing.mjs','tests/printing-impact.json'];
+  const profile={version:1,base,suite:'printing',files:paths.slice(0,-1).map(path=>({path,before:path==='src/printing.js'?null:before,after}))};
+  const readGit=(cmd,ref)=>{
+    if(cmd==='show')return JSON.stringify(profile);
+    const [commit,...parts]=ref.split(':'),file=profile.files.find(f=>f.path===parts.join(':'));
+    if(!file || commit===base&&!file.before)throw Error('Missing blob');return commit===base?file.before:file.after;
+  };
+  assert.equal(reviewedImpact(paths,{base,sha,readGit}).suite,'printing');
+  assert.equal(reviewedImpact([...paths,'src/library-store.js'],{base,sha,readGit}),null);
+  assert.equal(reviewedImpact([...paths,'tests/sidebar-resize-impact.json'],{base,sha,readGit}),null);
+  assert.equal(reviewedImpact(paths,{base:'f'.repeat(40),sha,readGit}),null);
+  assert.equal(reviewedImpact(paths,{base,sha,readGit:(cmd,ref)=>cmd==='rev-parse'&&ref===`${sha}:src/app.js`?'f'.repeat(40):readGit(cmd,ref)}),null);
+  assert.deepEqual(selectTests(['src/printing.js']).chromium,['printing']);
+  assert.deepEqual(selectTests(['tests/printing.mjs']).browsers,['chromium','firefox','webkit']);
+});
 test('CI changes run contracts without functional suites or audit', () => {
   const p = selectTests(['.github/workflows/pages.yml', 'scripts/test-plan.mjs', 'scripts/run-selected.mjs', 'tests/test-plan.mjs', 'tests/ci-contract.mjs']);
   assert.deepEqual(p.browsers, []); assert.equal(p.ci, true); assert.equal(p.audit, false);
