@@ -2,6 +2,7 @@ import './style.css';
 import './library-ui.css';
 import {setupAccessibleNavigation,labelReadingContent} from './accessibility.js';
 import {setupSidebarResize} from './sidebar-resize.js';
+import {setupPrinting} from './printing.js';
 import {readDroppedFiles} from './drop-import.js';
 import {createIcons, Plus, Search, X, FolderOpen, ShieldCheck, CircleHelp, PanelLeft, ChevronRight, Minus, Moon, Sun, Printer, List, FileText, FileUp, BookOpen, ArrowUp, Copy, Check, Sparkles, ImageOff, ArrowLeftRight, FileCode2, ChartNoAxesCombined} from 'lucide';
 import {renderMarkdown, sanitizeDiagram, safeDiagramSource, sanitizeFormula} from './renderer.js';
@@ -881,6 +882,7 @@ function prepareFeatures(rendered,version) {
 }
 
 function showDocument(doc, {preserveScroll = false, anchor = '',record = true,resume = record} = {}) {
+  printing.cancel();
   if (record) updateProgress();
   resumeTask=undefined;
   if (current !== doc) remoteAllowed = false;
@@ -1116,16 +1118,7 @@ $('brand-home').addEventListener('click', e => { e.preventDefault(); $('file-sea
 $('theme-toggle').addEventListener('click', () => setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'));
 $('font-minus').addEventListener('click', () => setFont(fontSize - 1, true));
 $('font-plus').addEventListener('click', () => setFont(fontSize + 1, true));
-$('print-button').addEventListener('click', async () => {
-  $('print-button').disabled = true;
-  await renderAllFeatures();
-  const images = [...$('document').querySelectorAll('img')];
-  images.forEach(img => { img.loading = 'eager'; });
-  await Promise.race([Promise.allSettled(images.map(img => img.decode())),new Promise(resolve => setTimeout(resolve,5000))]);
-  await document.fonts.ready;
-  $('print-button').disabled = false;
-  window.print();
-});
+const printing=setupPrinting({button:$('print-button'),status:$('print-status'),content:$('document'),prepareFeatures:()=>renderAllFeatures(),onError:()=>toast('無法準備列印，請稍後重試。')});
 const navigation=setupAccessibleNavigation({onLayout:updateTables,openFile:()=>$('file-input').click(),preference});
 $('back-top').addEventListener('click', () => window.scrollTo({top:0}));
 $('document').addEventListener('click', async e => {
