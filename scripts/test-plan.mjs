@@ -2,11 +2,13 @@ import {execFileSync} from 'node:child_process';
 import {appendFileSync, readFileSync, writeFileSync} from 'node:fs';
 import {pathToFileURL} from 'node:url';
 
-export const allSuites = ['verify', 'audit', 'lazy-features', 'offline-cache', 'library', 'backup', 'merge', 'font-progress', 'reading-controls', 'media-switch', 'multitab-progress', 'checkpoint-storage', 'tab-selection', 'same-document-progress', 'product-library', 'product-conflict', 'accessibility', 'drop-import'];
-export const compatibleSuites = ['backup', 'merge', 'font-progress', 'reading-controls', 'media-switch', 'multitab-progress', 'checkpoint-storage', 'tab-selection', 'same-document-progress', 'product-library', 'product-conflict', 'accessibility'];
+export const allSuites = ['verify', 'audit', 'lazy-features', 'offline-cache', 'library', 'backup', 'merge', 'font-progress', 'reading-controls', 'media-switch', 'multitab-progress', 'checkpoint-storage', 'tab-selection', 'same-document-progress', 'product-library', 'product-conflict', 'accessibility', 'drop-import', 'sidebar-resize'];
+export const compatibleSuites = ['backup', 'merge', 'font-progress', 'reading-controls', 'media-switch', 'multitab-progress', 'checkpoint-storage', 'tab-selection', 'same-document-progress', 'product-library', 'product-conflict', 'accessibility', 'sidebar-resize'];
 const reading = ['font-progress', 'reading-controls', 'media-switch', 'multitab-progress', 'tab-selection', 'same-document-progress'];
 const storage = ['library', 'backup', 'merge', 'checkpoint-storage', 'multitab-progress', 'tab-selection', 'same-document-progress', 'product-library', 'product-conflict'];
 const rules = {
+  'src/sidebar-resize.js': ['sidebar-resize'],
+  'src/sidebar-resize.css': ['sidebar-resize'],
   'src/drop-import.js': ['drop-import'],
   'src/accessibility.js': ['accessibility'],
   'src/accessibility.css': ['accessibility'],
@@ -61,6 +63,7 @@ export function reviewedImpact(paths,{base,sha,readGit}) {
   const candidates=[
     {path:'tests/accessibility-impact.json',suite:'accessibility',sources:['src/app.js','src/index.html','src/accessibility.js','src/accessibility.css','tests/accessibility.mjs']},
     {path:'tests/drop-import-impact.json',suite:'drop-import',sources:['src/app.js','src/drop-import.js','tests/drop-import.mjs']},
+    {path:'tests/sidebar-resize-impact.json',suite:'sidebar-resize',sources:['src/app.js','src/index.html','src/sidebar-resize.js','src/sidebar-resize.css','tests/sidebar-resize.mjs']},
   ].filter(scope=>paths.includes(scope.path));
   if(candidates.length!==1)return null;
   const scope=candidates[0],profilePath=scope.path;

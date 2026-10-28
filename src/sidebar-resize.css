@@ -1,0 +1,9 @@
+@media(min-width:721px){
+  .sidebar.sidebar-resized{width:var(--sidebar-width);flex-basis:var(--sidebar-width)}
+}
+.sidebar-resize{position:fixed;top:0;bottom:0;width:24px;z-index:16;cursor:col-resize;touch-action:none;outline-offset:-3px}
+.sidebar-resize::after{content:"";position:absolute;right:0;top:0;bottom:0;width:3px;background:transparent}
+.sidebar-resize:hover::after,.sidebar-resize:focus-visible::after,.sidebar-resizing .sidebar-resize::after{background:var(--accent)}
+.sidebar-resize:focus-visible{outline:2px solid var(--accent)}
+.sidebar-resizing,.sidebar-resizing *{cursor:col-resize!important;user-select:none!important}
+@media(max-width:720px){.sidebar-resize{display:none}}

@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "base": "73769303256fcde1dda99be0f168c43c119e17eb",
+  "suite": "sidebar-resize",
+  "files": [
+    {
+      "path": "ACCESSIBILITY.md",
+      "before": "74aa6bf19f71f3b7220ebfa230ae80cd26b9b40e",
+      "after": "798430f63e7d12a9183e4e77ae913da4d7ebaac0"
+    },
+    {
+      "path": "README.md",
+      "before": "00383e510facc712ad530a9708be0804b61488a7",
+      "after": "3632e5dcb5f71f10444f032aa7c23d9c36904abe"
+    },
+    {
+      "path": "TESTING.md",
+      "before": "5a1ceb2c23d02529e4672e9198ed24db784d1f14",
+      "after": "69c55f06ea490d2b137eb92c349064409720a0cb"
+    },
+    {
+      "path": "package-lock.json",
+      "before": "6d6a7164f4b0251c1dcc09685a0e4ae5ed01492c",
+      "after": "f4a2efb6f1e448b8f5f69634975f042f9eb361b9"
+    },
+    {
+      "path": "package.json",
+      "before": "3fce02bdcdcf8fd2079be045a4be64476e76dbf2",
+      "after": "a51f20623787fb72b7c696d247107773c2c8406d"
+    },
+    {
+      "path": "scripts/test-plan.mjs",
+      "before": "be5d4443110dfa53ac5fe69f8a3342115980d53d",
+      "after": "f7c1f987f66bd7fd7188514364e875671ee4a4fa"
+    },
+    {
+      "path": "src/app.js",
+      "before": "cfb5c087359a0b5842425283fa53201ea8a83d95",
+      "after": "ea07f4b1f753fd5faedda5d8216b2b0d30bf5188"
+    },
+    {
+      "path": "src/index.html",
+      "before": "aa818df01ea36ebc285f7305819073b954e6e4e7",
+      "after": "9b312a29ad8c43fb843efc963682a3af665155ce"
+    },
+    {
+      "path": "src/sidebar-resize.css",
+      "before": null,
+      "after": "bf7c3a7f27cd569046cc72216b8d9e2cb64bfd5e"
+    },
+    {
+      "path": "src/sidebar-resize.js",
+      "before": null,
+      "after": "c010c0d7e52d109c1fe3d6017e5030a0ebf4732e"
+    },
+    {
+      "path": "tests/sidebar-resize.mjs",
+      "before": null,
+      "after": "84dfa9e43c28740ed6b46f47c39a39eec1a406f8"
+    },
+    {
+      "path": "tests/test-plan.mjs",
+      "before": "92633ab0342a03105b71b479c22704dc40e4a225",
+      "after": "691cee6d85803bf90c6790c470722ee653804541"
+    },
+    {
+      "path": "\u4ea4\u63a5\u6587\u4ef6.md",
+      "before": "aecda8512a56a7a25161970929545b30c76d296f",
+      "after": "65ce18a2b226360ed1bb358fef1cf9d5d8d1930b"
+    }
+  ]
+}

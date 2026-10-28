@@ -1,6 +1,7 @@
 import './style.css';
 import './library-ui.css';
 import {setupAccessibleNavigation,labelReadingContent} from './accessibility.js';
+import {setupSidebarResize} from './sidebar-resize.js';
 import {readDroppedFiles} from './drop-import.js';
 import {createIcons, Plus, Search, X, FolderOpen, ShieldCheck, CircleHelp, PanelLeft, ChevronRight, Minus, Moon, Sun, Printer, List, FileText, FileUp, BookOpen, ArrowUp, Copy, Check, Sparkles, ImageOff, ArrowLeftRight, FileCode2, ChartNoAxesCombined} from 'lucide';
 import {renderMarkdown, sanitizeDiagram, safeDiagramSource, sanitizeFormula} from './renderer.js';
@@ -751,11 +752,11 @@ function scheduleProgress() {
   progressFrame = requestAnimationFrame(() => { progressFrame = 0; updateProgress(); });
 }
 
-function updateProgress() {
+function updateProgress(restoreLayout=false) {
   const article = $('document');
   const top = window.scrollY + article.getBoundingClientRect().top;
   const articleHeight=article.offsetHeight;
-  const changed=layoutWidth!==innerWidth || layoutHeight!==innerHeight;
+  const changed=restoreLayout===true || layoutWidth!==innerWidth || layoutHeight!==innerHeight;
   const saved=changed && !resumeTask && displayedDocument===current && readingPositions.get(current.path);
   if(changed || Math.abs(top-layoutTop)>.5 || articleHeight!==layoutArticleHeight) measureHeadings=true;
   if (measureHeadings) {
@@ -769,7 +770,7 @@ function updateProgress() {
   }
   if(saved && saved.revision===current.revision && saved.block && readingBlocks[saved.block.index]) {
     const max=Math.max(0,document.documentElement.scrollHeight-innerHeight);
-    window.scrollTo({top:saved.atEnd ? max : Math.max(0,Math.min(max,blockTarget({element:readingBlocks[saved.block.index],fraction:saved.block.fraction,gap:saved.block.gap}))),behavior:'instant'});
+    window.scrollTo({top:saved.y<5 ? 0 : saved.atEnd ? max : Math.max(0,Math.min(max,blockTarget({element:readingBlocks[saved.block.index],fraction:saved.block.fraction,gap:saved.block.gap}))),behavior:'instant'});
     if(!saved.atEnd) restoredBlock={version:renderVersion,y:scrollY,block:saved.block};
   }
   const length = Math.max(1, articleHeight - window.innerHeight + 100);
@@ -1208,6 +1209,7 @@ async function startReader() {
   libraryLoading=false;
   $('loading').hidden = true;
   $('app').hidden = false;
+  setupSidebarResize({preference,beforeChange:updateProgress,onChange:()=>{updateTables();updateProgress(true);}});
   showDocument(current);
   prepareOffline();
 }
