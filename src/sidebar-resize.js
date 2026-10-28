@@ -56,6 +56,7 @@ export function setupSidebarResize({preference,beforeChange,onChange}) {
     flush();preference('sidebar-width',String(preferred));
   });
   window.addEventListener('resize',()=>{finish();apply();});
+  mobile.addEventListener('change',()=>{finish();apply();});
   window.addEventListener('blur',()=>finish());
   new ResizeObserver(sync).observe(sidebar);
   apply();

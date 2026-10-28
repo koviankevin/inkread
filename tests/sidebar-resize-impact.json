@@ -51,12 +51,12 @@
     {
       "path": "src/sidebar-resize.js",
       "before": null,
-      "after": "c010c0d7e52d109c1fe3d6017e5030a0ebf4732e"
+      "after": "699f572c9dde017caccc08427d95ed359e7f3c84"
     },
     {
       "path": "tests/sidebar-resize.mjs",
       "before": null,
-      "after": "e2c89a62f4a8514ca40522c8e6c1e096974aac16"
+      "after": "f6a30d583d2ba7a926ed1d69c24e19fe34b196b3"
     },
     {
       "path": "tests/test-plan.mjs",

@@ -74,8 +74,15 @@ try {
   await key(p,'ArrowLeft');await same(p,points.original);await p.screenshot({path:path.join(output,'desktop.png')});
   const persisted=await width(p);await p.reload();await same(p,points.original);assert.equal(await width(p),persisted);
   pass('Cancellation releases drag state and a normal reload retains width and paragraph');
-  const delta=await p.locator('#document p').filter({hasText:/^PARA-060 /}).evaluate(el=>el.getBoundingClientRect().top+el.getBoundingClientRect().height*.35-150);
-  await p.mouse.move(800,400);await p.mouse.wheel(0,delta);await p.waitForTimeout(700);await stable(p);points.user=await point(p);assert.equal(points.user.paragraph,'PARA-060');
+  await p.mouse.move(800,400);
+  // Firefox limits a single large wheel delta; use several ordinary gestures
+  // and verify the new real paragraph, rather than assuming a synthetic distance.
+  for(let i=0;i<8;i++){
+    await p.mouse.wheel(0,300);await p.waitForTimeout(250);await stable(p);
+    const next=await point(p);
+    if(next.paragraph && next.paragraph!==points.original.paragraph){points.user=next;break;}
+  }
+  assert(points.user,'Native wheel gestures must reach another paragraph');
   await key(p,'ArrowRight');await same(p,points.user);
   pass('Real user scrolling replaces the old paragraph after resizing');
   const finalWidth=await width(p),savedURL=p.url();await context.close();context=undefined;unavailable=true;p=await launch(savedURL);
