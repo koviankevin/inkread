@@ -1,5 +1,9 @@
 # 墨閱 Inkread
 
+## v1.0.0 · 統一版本起點
+
+自本次起，GH Studio 工具統一以 **v1.0.0** 作為新起點。這是版本命名重整，保留既有功能與歷史紀錄；後續各工具依變更分別遞增：修正用修正版、相容功能用次版、不相容變更用主版。對外正式版本不加 preview；資料格式版本不隨產品版本重設。
+
 讓 Markdown 回到好閱讀。文件在你的瀏覽器處理與保存，支援離線閱讀、圖片、圖表與公式。
 
 [開啟墨閱](https://koviankevin.github.io/inkread/) · [下載離線版](https://koviankevin.github.io/inkread/inkread-offline.zip) · [原始碼與問題回報](https://github.com/koviankevin/inkread)
